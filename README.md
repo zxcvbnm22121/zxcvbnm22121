@@ -1,8 +1,6 @@
 https://www.mediafire.com/folder/sjsbyf40qelam/Data
 
-https://terabox.com/s/172XTETNlbaOHFHrcZXbWmw
-
-https://1drv.ms/u/c/695b711f79e8e716/EU-nRpcpiXJDnmIZIfgwQ1kB3r9vEKkJERB_kaAyr4rnyA
+https://1drv.ms/u/c/695b711f79e8e716/EUZ08kNrdWNLkDiHEgqVfe0BkGk4hrZ6O0TTXJ3LX1EXfQ
 
 huybui050399 
 huyvip453
