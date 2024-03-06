@@ -1,24 +1,15 @@
 https://www.mediafire.com/folder/sjsbyf40qelam/Data
 
-https://1drv.ms/u/c/695b711f79e8e716/EUZ08kNrdWNLkDiHEgqVfe0BkGk4hrZ6O0TTXJ3LX1EXfQ
-
-huybui050399 
-huyvip453
-
-vipbujdoj
-Sharkfin134
-
-duygame9x
-duy280994
-
-hung29091999
-0367605853hung
+https://1drv.ms/u/c/695b711f79e8e716/EbNyiB19JgdFnKDykbGiXiYBpwGumv4LmTxVJF_IwTd-wQ
 
 khuclong7777
 Oceanmaster77
 
 dngph882002
 phuocat14
+
+cdgiang
+thienlong4691@
 
 
 con Mổu:
