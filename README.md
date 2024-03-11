@@ -1,8 +1,6 @@
 https://www.mediafire.com/folder/sjsbyf40qelam/Data
 
-https://1drv.ms/u/c/695b711f79e8e716/ERVQ3r3zSFZGkGY4M7fhFbEB8DopY3EHo8oEfQHzfgqcKA
-
-https://1drv.ms/u/c/695b711f79e8e716/EUndmq1h1odGgoIA5nrLFKABQHF8oKzKHt73uG6irbPNEw
+https://1drv.ms/f/c/695b711f79e8e716/EjBPBbMIZG1Oud2EkUo3d_8BWI6aNIda3BofAqehcX0NKg
 
 khuclong7777
 Oceanmaster77
