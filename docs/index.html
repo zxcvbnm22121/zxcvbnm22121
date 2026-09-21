@@ -1167,11 +1167,12 @@ async function addRemoteHistory(taskId,action,detail){
  if(error)console.warn('history insert',error)
 }
 async function activateRemoteUser(user){
+ await syncProfiles();
  const profile=state.accounts.find(a=>a.id===user.id);
  if(!profile)throw new Error('Tài khoản chưa có profile. Hãy kiểm tra bảng profiles trong Supabase.');
  if(!profile.active)throw new Error('Tài khoản này đang bị khóa.');
  session={id:user.id};route=profile.role==='Leader'?'overview':'pending';
- await syncProfiles();await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true),syncRemoteModules(true)]);subscribeTaskChanges();showApp();render()
+ await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true),syncRemoteModules(true)]);subscribeTaskChanges();showApp();render()
 }
 async function syncRemoteModules(silent=false){
  if(!session?.id)return;
@@ -1296,7 +1297,7 @@ async function markConversationRead(userId){
  const {error}=await supabaseClient.from('messages').update({read_at:now}).in('id',ids);
  if(error){console.warn('mark read',error);return}
  await syncRemoteMessages(true);renderNav();
- if(route==='chat')render()
+ if(route==='chat')safeAutoRender()
 }
 function safeContact(v){return esc(v||'Chưa cập nhật')}
 function formatMessageText(text=''){
@@ -1505,7 +1506,7 @@ function filteredTasks(mode){
  if(mode==='pending')a=a.filter(t=>t.status!=='done');
  if(mode==='doing')a=a.filter(t=>t.status==='doing');
  if(mode==='done')a=a.filter(t=>t.status==='done');
- if(filters.employee)a=a.filter(t=>t.assignee===filters.employee);
+ if(filters.employee)a=a.filter(t=>t.assigneeId===filters.employee);
  if(filters.priority)a=a.filter(t=>t.priority===filters.priority);
  if(filters.q){const q=filters.q.toLowerCase();a=a.filter(t=>(t.title+' '+t.description+' '+t.assignee).toLowerCase().includes(q))}
  return a.sort((x,y)=>{if(x.status==='done'&&y.status==='done')return new Date(y.completedAt||0)-new Date(x.completedAt||0);if(overdue(x)!==overdue(y))return overdue(x)?-1:1;if(x.priority!==y.priority)return['Cao','Trung bình','Thấp'].indexOf(x.priority)-['Cao','Trung bình','Thấp'].indexOf(y.priority);return new Date(x.deadline)-new Date(y.deadline)})
@@ -1515,7 +1516,7 @@ function tasksPage(mode){
  const [title,desc]=labels[mode];
  return head(isLeader()?title:(mode==='unread'?'Việc chưa đọc':mode==='pending'?'Việc cần làm':mode==='doing'?'Đang làm':'Đã hoàn thành'),desc)+
  (!isLeader()&&mode==='pending'?announcementBoard():'')+
- (isLeader()?`<div class="toolbar"><div class="search">⌕<input id="q" value="${esc(filters.q)}" placeholder="Tìm task..."></div><select id="employeeFilter"><option value="">Tất cả nhân viên</option>${state.accounts.filter(x=>x.role==='Sale').map(x=>`<option ${filters.employee===x.name?'selected':''} >${esc(x.name)}</option>`).join('')}</select><select id="priorityFilter"><option value="">Mọi ưu tiên</option>${['Cao','Trung bình','Thấp'].map(x=>`<option ${filters.priority===x?'selected':''}>${x}</option>`).join('')}</select><button class="btn" id="clearFilter">Xóa lọc</button></div>`:'')+
+ (isLeader()?`<div class="toolbar"><div class="search">⌕<input id="q" value="${esc(filters.q)}" placeholder="Tìm task..."></div><select id="employeeFilter"><option value="">Tất cả nhân viên</option>${state.accounts.filter(x=>x.role==='Sale').map(x=>`<option value="${x.id}" ${filters.employee===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select><select id="priorityFilter"><option value="">Mọi ưu tiên</option>${['Cao','Trung bình','Thấp'].map(x=>`<option ${filters.priority===x?'selected':''}>${x}</option>`).join('')}</select><button class="btn" id="clearFilter">Xóa lọc</button></div>`:'')+
  (isLeader()&&a.length?bulkBar(a):'')+
  `<div class="tasklist">${a.map(taskCard).join('')||emptyState(mode)}</div>`;
 }
@@ -1620,8 +1621,9 @@ async function dataUrlToBlob(dataUrl){
  const r=await fetch(dataUrl);return await r.blob()
 }
 async function sendMessage(){
+ if(chatSending)return;chatSending=true;
  const input=document.getElementById('chatInput'),text=(input?.value||'').trim();
- if((!text&&!pendingChatImage)||!activeChatId)return;
+ if((!text&&!pendingChatImage)||!activeChatId){chatSending=false;return;}
  const btn=document.getElementById('sendMessage');if(btn){btn.disabled=true;btn.textContent='Đang gửi...'}
  let imagePath='';
  try{
@@ -1641,7 +1643,7 @@ async function sendMessage(){
  }catch(err){
   console.error(err);showToast('Không gửi được: '+(err.message||err));
   if(imagePath){try{await supabaseClient.storage.from('chat-images').remove([imagePath])}catch(e){}}
- }finally{const b=document.getElementById('sendMessage');if(b){b.disabled=false;b.textContent='➤ Gửi'}}
+ }finally{chatSending=false;const b=document.getElementById('sendMessage');if(b){b.disabled=false;b.textContent='➤ Gửi'}}
 }
 async function resizeChatImage(file){
  return new Promise((resolve,reject)=>{
@@ -1736,7 +1738,7 @@ function reviewRequest(id){
  openModal('Duyệt '+x.type,`<div class="card pad"><b>${esc(x.employee)}</b><div class="sub" style="margin-top:4px">${when}</div><div class="taskdesc" style="margin-top:10px">${esc(x.reason)}</div></div><div class="field" style="margin-top:13px"><label>PHẢN HỒI CHO NHÂN VIÊN</label><textarea id="leaderRequestNote" rows="3" placeholder="Có thể để trống nếu không cần ghi chú"></textarea></div>`,[
   {label:'Từ chối',danger:true,action:async()=>{const note=document.getElementById('leaderRequestNote').value.trim();const now=new Date().toISOString();const {error}=await supabaseClient.from('leave_requests').update({status:'Từ chối',leader_note:note||null,reviewed_at:now,reviewed_by:me().id,updated_at:now}).eq('id',x.id);if(error)return showToast(error.message);await syncRemoteModules(true);closeModal();render();showToast('Đã từ chối đơn')}},
   {label:'Duyệt',primary:true,action:async()=>{const note=document.getElementById('leaderRequestNote').value.trim();const now=new Date().toISOString();const {error}=await supabaseClient.from('leave_requests').update({status:'Đã duyệt',leader_note:note||null,reviewed_at:now,reviewed_by:me().id,updated_at:now}).eq('id',x.id);if(error)return showToast(error.message);
-    if(x.type==='Nghỉ phép'){
+    if(x.type==='Nghỉ phép'&&(!x.session||x.session==='Cả ngày')){
       const leaveShift=x.session&&x.session!=='Cả ngày'?`Nghỉ ${x.session.toLowerCase()}`:'Nghỉ';const rows=dateRange(x.dateFrom,x.dateTo).map(ds=>({user_id:x.userId,work_date:ds,shift:leaveShift,start_time:null,end_time:null,note:`Nghỉ phép đã duyệt${x.session&&x.session!=='Cả ngày'?' · '+x.session:''}: ${x.reason||''}`,status:'Đã duyệt',reviewed_at:now,reviewed_by:me().id,updated_at:now}));
       const {error:se}=await supabaseClient.from('work_schedules').upsert(rows,{onConflict:'user_id,work_date'});if(se)console.warn(se)
     }
@@ -1932,10 +1934,11 @@ function bindPage(){
 
 }
 async function createTask(){
+ if(taskCreating)return;taskCreating=true;
  const title=document.getElementById('fTitle').value.trim(),assigneeId=document.getElementById('fAssignee').value,deadline=document.getElementById('fDeadline').value;
- if(!title||!deadline)return showToast('Nhập tên công việc và deadline');
+ if(!title||!deadline){taskCreating=false;return showToast('Nhập tên công việc và deadline')}
  const target=state.accounts.find(a=>a.id===assigneeId&&a.role==='Sale');
- if(!target)return showToast('Không tìm thấy tài khoản nhân viên trong Supabase');
+ if(!target){taskCreating=false;return showToast('Không tìm thấy tài khoản nhân viên trong Supabase')}
  const payload={
   title,description:document.getElementById('fDesc').value.trim(),assigned_to:target.id,created_by:me().id,
   priority:priorityDb(document.getElementById('fPriority').value),task_group:document.getElementById('fGroup').value,status:'todo',
@@ -1944,9 +1947,9 @@ async function createTask(){
   result:''
  };
  const {data,error}=await supabaseClient.from('tasks').insert(payload).select().single();
- if(error)return showToast('Không giao được task: '+error.message);
+ if(error){taskCreating=false;return showToast('Không giao được task: '+error.message)}
  await addRemoteHistory(data.id,'created','Đã giao task');
- await syncRemoteTasks(true);showToast(`Đã giao việc cho ${target.name}`);filters={q:'',employee:target.name,priority:''};go('pending')
+ await syncRemoteTasks(true);taskCreating=false;showToast(`Đã giao việc cho ${target.name}`);filters={q:'',employee:target.id,priority:''};go('pending')
 }
 async function markRead(t){
  if(t.read)return;
@@ -2011,7 +2014,8 @@ function editTask(id){
   const target=state.accounts.find(a=>a.id===document.getElementById('eAssignee').value);
   const items=document.getElementById('eChecklist').value.split('\n').map(x=>x.trim()).filter(Boolean);
   const due=document.getElementById('eDeadline').value;
-  const payload={title:document.getElementById('eTitle').value.trim(),assigned_to:target.id,priority:priorityDb(document.getElementById('ePriority').value),task_group:document.getElementById('eGroup').value,deadline:due?new Date(due).toISOString():null,description:document.getElementById('eDesc').value.trim(),checklist:{items,checked:(t.checked||[]).filter(i=>i<items.length)},updated_at:new Date().toISOString()};
+  const reassigned=target.id!==t.assigneeId;
+  const payload={title:document.getElementById('eTitle').value.trim(),assigned_to:target.id,priority:priorityDb(document.getElementById('ePriority').value),task_group:document.getElementById('eGroup').value,deadline:due?new Date(due).toISOString():null,description:document.getElementById('eDesc').value.trim(),checklist:{items,checked:reassigned?[]:(t.checked||[]).filter(i=>i<items.length)},updated_at:new Date().toISOString(),...(reassigned?{is_read:false,read_at:null,status:'todo',started_at:null,completed_at:null,result:''}:{})};
   const {error}=await supabaseClient.from('tasks').update(payload).eq('id',id);
   if(error)return showToast('Không cập nhật được task: '+error.message);
   await addRemoteHistory(id,'edited','Leader đã chỉnh sửa task');await syncRemoteTasks(true);closeModal();render();showToast('Đã cập nhật task')
