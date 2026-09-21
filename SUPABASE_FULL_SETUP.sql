@@ -760,17 +760,19 @@ create policy "Authenticated users view chat images"
 on storage.objects for select to authenticated
 using (
   bucket_id = 'chat-images'
-  and exists (
-    select 1
-    from public.messages m
-    where m.image_path = name
-      and (m.sender_id = auth.uid() or m.receiver_id = auth.uid())
-  )
-  or exists (
-    select 1
-    from public.chat_group_messages gm
-    where gm.image_path = name
-      and public.is_group_member(gm.group_id, auth.uid())
+  and (
+    exists (
+      select 1
+      from public.messages m
+      where m.image_path = name
+        and (m.sender_id = auth.uid() or m.receiver_id = auth.uid())
+    )
+    or exists (
+      select 1
+      from public.chat_group_messages gm
+      where gm.image_path = name
+        and public.is_group_member(gm.group_id, auth.uid())
+    )
   )
 );
 
