@@ -1096,7 +1096,13 @@ const seed={
 };
 function today(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function clone(x){return JSON.parse(JSON.stringify(x))}
-function load(){try{localStorage.removeItem(KEY)}catch(e){}return clone(seed)}
+function load(){
+ try{localStorage.removeItem(KEY)}catch(e){}
+ return {
+  accounts:[],tasks:[],messages:[],schedules:[],announcements:[],leaveRequests:[],
+  reports:{ads:[],live:[],zalo:[],web:[]},reportTargets:{}
+ }
+}
 let state=load(),session=null,loginRole='Leader',route='overview',selected=new Set(),filters={q:'',employee:'',priority:''},activeChatId=null,chatSearch='',scheduleWeekOffset=0,reportTab='ads',reportMonth=today().slice(0,7),reportEditId=null,requestFilter='all',taskChannel=null,lastTaskSyncAt=null,chatDrafts={},chatSending=false,taskCreating=false,chatImageUrlCache=new Map();
 function save(){}
 function isChatComposing(){
@@ -1189,37 +1195,34 @@ async function activateRemoteUser(user){
 async function syncRemoteModules(silent=false){
  if(!session?.id)return;
  const accountById=()=>Object.fromEntries(state.accounts.map(a=>[a.id,a]));
- const fetchSafe=async table=>{
-  try{return await fetchAllRows(table,'created_at',true)}
-  catch(error){console.warn('sync '+table,error.message);return null}
- };
+ const fetchSafe=table=>fetchAllRows(table,'created_at',true);
  const [ann,sch,req,rep]=await Promise.all([
   fetchSafe('announcements'),fetchSafe('work_schedules'),fetchSafe('leave_requests'),fetchSafe('report_entries')
  ]);
  const acct=accountById();
- if(ann!==null)state.announcements=ann.map(r=>({
+ state.announcements=ann.map(r=>({
   id:r.id,title:r.title,content:r.content,start:r.start_date||'',end:r.end_date||'',
   priority:r.priority||'Bình thường',active:r.active!==false,
   createdBy:acct[r.created_by]?.name||'Leader',createdById:r.created_by,
   createdAt:r.created_at,updatedAt:r.updated_at
  }));
- if(sch!==null)state.schedules=sch.map(r=>({
+ state.schedules=sch.map(r=>({
   id:r.id,userId:r.user_id,employee:acct[r.user_id]?.name||'',date:r.work_date,
   shift:r.shift,start:(r.start_time||'').slice(0,5),end:(r.end_time||'').slice(0,5),
   note:r.note||'',status:r.status||'Chờ duyệt',reviewedAt:r.reviewed_at||null,
   reviewedBy:acct[r.reviewed_by]?.name||'',createdAt:r.created_at,updatedAt:r.updated_at
  }));
- if(req!==null)state.leaveRequests=req.map(r=>({
+ state.leaveRequests=req.map(r=>({
   id:r.id,userId:r.user_id,employee:acct[r.user_id]?.name||'',type:r.type,
   dateFrom:r.date_from,dateTo:r.date_to||r.date_from,session:r.session||'',
   arrivalTime:(r.arrival_time||'').slice(0,5),reason:r.reason||'',status:r.status||'Chờ duyệt',
   leaderNote:r.leader_note||'',reviewedAt:r.reviewed_at||null,
   reviewedBy:acct[r.reviewed_by]?.name||'',createdAt:r.created_at,updatedAt:r.updated_at
  }));
- if(rep!==null){
+ {
   state.reports={ads:[],live:[],zalo:[],web:[]};
   rep.forEach(r=>{
-   const base={id:r.id,date:r.report_date,employee:r.employee_name||acct[r.employee_id]?.name||'',
+   const base={id:r.id,date:r.report_date,employee:acct[r.employee_id]?.name||r.employee_name||'',
     orders:Number(r.orders||0),sales:Number(r.sales||0),products:Number(r.products||0),
     enteredBy:acct[r.entered_by]?.name||''};
    if(r.channel==='ads')state.reports.ads.push({...base,data:Number(r.data_count||0)});
@@ -1758,13 +1761,22 @@ function reviewRequest(id){
  ])
 }
 
+function permissionBadges(userId,date){
+ return (state.leaveRequests||[]).filter(r=>
+  r.userId===userId&&r.status==='Đã duyệt'&&r.dateFrom<=date&&r.dateTo>=date&&
+  (r.type==='Đến muộn'||(r.type==='Nghỉ phép'&&r.session&&r.session!=='Cả ngày'))
+ ).map(r=>{
+  const label=r.type==='Đến muộn'?('Đến muộn · '+(r.arrivalTime||'--:--')):('Nghỉ '+String(r.session||'').toLowerCase());
+  return `<div class="workcal-shift leave" style="margin-top:5px"><b>${esc(label)}</b><small>${esc(r.reason||'Đã duyệt')}</small></div>`
+ }).join('')
+}
 function saleWorkCalendar(days,userId){
  const user=state.accounts.find(a=>a.id===userId)||me();
- return `<div class="workcal-wrap"><div class="workcal-head"><h3>Lịch làm việc của ${esc(user.name)}</h3><div class="workcal-legend"><span class="legend-item"><i class="legend-dot approved"></i>Đã duyệt</span><span class="legend-item"><i class="legend-dot pending"></i>Chờ duyệt</span><span class="legend-item"><i class="legend-dot leave"></i>Nghỉ</span><span class="legend-item"><i class="legend-dot empty"></i>Chưa đăng ký</span></div></div><div class="workcal-grid">${days.map(d=>{const ds=isoDate(d),x=scheduleFor(userId,ds),todayFlag=ds===today();let block='';if(x){const cls=String(x.shift||'').startsWith('Nghỉ')?'leave':x.status==='Đã duyệt'?'approved':x.status==='Từ chối'?'rejected':'pending';block=`<div class="workcal-shift ${cls}"><b>${esc(x.shift)}</b><small>${String(x.shift||'').startsWith('Nghỉ')?'Nghỉ':`${esc(x.start||'--:--')} → ${esc(x.end||'--:--')}`}<br>${esc(x.status)}</small></div>`}else block='<div class="workcal-empty">Chưa có lịch</div>';return`<div class="workcal-day ${todayFlag?'today':''}"><div class="workcal-day-head"><div><div class="workcal-weekday">${d.toLocaleDateString('vi-VN',{weekday:'short'})}</div><div class="workcal-date">${String(d.getDate()).padStart(2,'0')}</div></div><div class="workcal-month">T${d.getMonth()+1}</div></div>${block}</div>`}).join('')}</div></div>`;
+ return `<div class="workcal-wrap"><div class="workcal-head"><h3>Lịch làm việc của ${esc(user.name)}</h3><div class="workcal-legend"><span class="legend-item"><i class="legend-dot approved"></i>Đã duyệt</span><span class="legend-item"><i class="legend-dot pending"></i>Chờ duyệt</span><span class="legend-item"><i class="legend-dot leave"></i>Nghỉ</span><span class="legend-item"><i class="legend-dot empty"></i>Chưa đăng ký</span></div></div><div class="workcal-grid">${days.map(d=>{const ds=isoDate(d),x=scheduleFor(userId,ds),todayFlag=ds===today();let block='';if(x){const cls=String(x.shift||'').startsWith('Nghỉ')?'leave':x.status==='Đã duyệt'?'approved':x.status==='Từ chối'?'rejected':'pending';block=`<div class="workcal-shift ${cls}"><b>${esc(x.shift)}</b><small>${String(x.shift||'').startsWith('Nghỉ')?'Nghỉ':`${esc(x.start||'--:--')} → ${esc(x.end||'--:--')}`}<br>${esc(x.status)}</small></div>`}else block='<div class="workcal-empty">Chưa có lịch</div>';return`<div class="workcal-day ${todayFlag?'today':''}"><div class="workcal-day-head"><div><div class="workcal-weekday">${d.toLocaleDateString('vi-VN',{weekday:'short'})}</div><div class="workcal-date">${String(d.getDate()).padStart(2,'0')}</div></div><div class="workcal-month">T${d.getMonth()+1}</div></div>${block}${permissionBadges(userId,ds)}</div>`}).join('')}</div></div>`;
 }
 function teamWorkCalendar(days){
  const sales=state.accounts.filter(a=>a.role==='Sale'&&a.active);
- return `<div class="workcal-wrap"><div class="workcal-head"><h3>Lịch làm việc toàn team</h3><div class="workcal-legend"><span class="legend-item"><i class="legend-dot approved"></i>Đã duyệt</span><span class="legend-item"><i class="legend-dot pending"></i>Chờ duyệt</span><span class="legend-item"><i class="legend-dot leave"></i>Nghỉ</span></div></div><div style="overflow:auto"><div class="team-calendar"><div class="tc-head">Nhân viên</div>${days.map(d=>`<div class="tc-head">${d.toLocaleDateString('vi-VN',{weekday:'short'})}<br>${d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</div>`).join('')}${sales.map(u=>`<div class="tc-name">${avatarHTML(u)} ${esc(u.name)}</div>${days.map(d=>{const x=scheduleFor(u.id,isoDate(d));if(!x)return'<div></div>';const cls=String(x.shift||'').startsWith('Nghỉ')?'leave':x.status==='Đã duyệt'?'approved':x.status==='Chờ duyệt'?'pending':'';return`<div><div class="tc-shift ${cls}"><b>${esc(x.shift)}</b><span>${String(x.shift||'').startsWith('Nghỉ')?'Nghỉ':`${esc(x.start||'--:--')}–${esc(x.end||'--:--')}`}<br>${esc(x.status)}</span></div></div>`}).join('')}`).join('')}</div></div></div>`;
+ return `<div class="workcal-wrap"><div class="workcal-head"><h3>Lịch làm việc toàn team</h3><div class="workcal-legend"><span class="legend-item"><i class="legend-dot approved"></i>Đã duyệt</span><span class="legend-item"><i class="legend-dot pending"></i>Chờ duyệt</span><span class="legend-item"><i class="legend-dot leave"></i>Nghỉ</span></div></div><div style="overflow:auto"><div class="team-calendar"><div class="tc-head">Nhân viên</div>${days.map(d=>`<div class="tc-head">${d.toLocaleDateString('vi-VN',{weekday:'short'})}<br>${d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</div>`).join('')}${sales.map(u=>`<div class="tc-name">${avatarHTML(u)} ${esc(u.name)}</div>${days.map(d=>{const x=scheduleFor(u.id,isoDate(d));if(!x){const p=permissionBadges(u.id,isoDate(d));return p?`<div>${p}</div>`:'<div></div>'}const cls=String(x.shift||'').startsWith('Nghỉ')?'leave':x.status==='Đã duyệt'?'approved':x.status==='Chờ duyệt'?'pending':'';return`<div><div class="tc-shift ${cls}"><b>${esc(x.shift)}</b><span>${String(x.shift||'').startsWith('Nghỉ')?'Nghỉ':`${esc(x.start||'--:--')}–${esc(x.end||'--:--')}`}<br>${esc(x.status)}</span></div>${permissionBadges(u.id,isoDate(d))}</div>`}).join('')}`).join('')}</div></div></div>`;
 }
 
 function schedulePage(){
@@ -1775,7 +1787,7 @@ function schedulePage(){
   return head('Đăng ký & lịch làm việc','Đăng ký ca xong sẽ hiển thị trực tiếp trên lịch tuần của bạn.')+controls+
   saleWorkCalendar(days,me().id)+
   `<div class="sectionhead" style="margin-top:18px"><h3>Chi tiết đăng ký</h3><small>Bấm Sửa nếu cần thay đổi ca</small></div>`+
-  `<div class="schedule-sale-grid">${days.map(d=>{const ds=isoDate(d),x=scheduleFor(me().id,ds),todayFlag=ds===today();return`<div class="schedule-day ${todayFlag?'today-card':''}"><div class="schedule-date">${d.toLocaleDateString('vi-VN',{weekday:'long'})}<b>${d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</b></div>${x?`<div class="shift-name">${esc(x.shift)}</div>${!String(x.shift||'').startsWith('Nghỉ')?`<div class="shift-time">${esc(x.start||'--:--')} → ${esc(x.end||'--:--')}</div>`:''}<div class="schedule-note">${esc(x.note||'Không có ghi chú')}</div><div class="schedule-status"><span class="pill ${x.status==='Đã duyệt'?'green':x.status==='Từ chối'?'red':'orange'}">${x.status}</span></div><div class="actions" style="justify-content:flex-start;margin-top:10px"><button class="btn small" data-edit-schedule="${x.id}">Sửa</button></div>`:`<div class="empty" style="padding:28px 0 12px"><b>Chưa đăng ký</b></div><button class="btn small" data-new-schedule="${ds}">+ Đăng ký ngày này</button>`}</div>`}).join('')}</div>`;
+  `<div class="schedule-sale-grid">${days.map(d=>{const ds=isoDate(d),x=scheduleFor(me().id,ds),todayFlag=ds===today();return`<div class="schedule-day ${todayFlag?'today-card':''}"><div class="schedule-date">${d.toLocaleDateString('vi-VN',{weekday:'long'})}<b>${d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</b></div>${x?`<div class="shift-name">${esc(x.shift)}</div>${!String(x.shift||'').startsWith('Nghỉ')?`<div class="shift-time">${esc(x.start||'--:--')} → ${esc(x.end||'--:--')}</div>`:''}<div class="schedule-note">${esc(x.note||'Không có ghi chú')}</div><div class="schedule-status"><span class="pill ${x.status==='Đã duyệt'?'green':x.status==='Từ chối'?'red':'orange'}">${x.status}</span></div><div class="actions" style="justify-content:flex-start;margin-top:10px"><button class="btn small" data-edit-schedule="${x.id}">Sửa</button></div>`:`<div class="empty" style="padding:28px 0 12px"><b>Chưa đăng ký</b></div><button class="btn small" data-new-schedule="${ds}">+ Đăng ký ngày này</button>`}${permissionBadges(me().id,ds)}</div>`}).join('')}</div>`;
  }
  return head('Lịch làm việc của team','Leader xem nhanh toàn bộ ca làm/nghỉ và duyệt từng đăng ký')+controls+
  teamWorkCalendar(days)+
