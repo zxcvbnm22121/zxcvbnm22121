@@ -1710,8 +1710,8 @@ function taskActions(t){
 function employeesPage(){
  const sales=state.accounts.filter(a=>a.role==='Sale');
  return head('Nhân viên','Danh sách được đồng bộ từ Supabase Authentication / profiles')+
- `<div class="people-grid" style="margin-bottom:15px">${sales.map(a=>{const c=countsFor(a.name);return`<div class="card person-card">${avatarHTML(a)}<b>${esc(a.name)}</b><div class="sub">${esc(a.title||'Sale Online')}</div><div class="quick-contact">${a.phone?`<span class="pill">☎ ${esc(a.phone)}</span>`:''}${a.zalo?`<span class="pill">Zalo ${esc(a.zalo)}</span>`:''}${a.email?`<span class="pill">${esc(a.email)}</span>`:''}</div><div style="margin-top:9px"><span class="${c.unread?'red':''}"><b>${c.unread}</b> chưa đọc</span> · <b>${c.pending}</b> chưa xong</div><div class="actions" style="justify-content:center;margin-top:10px"><button class="btn small" data-message-user="${a.id}">Nhắn tin</button><button class="btn small" data-view-profile="${a.id}">Hồ sơ</button></div></div>`}).join('')}</div>
- <div class="card tablewrap"><table class="table"><thead><tr><th>Nhân viên</th><th>Tài khoản</th><th>Chưa đọc</th><th>Chưa xong</th><th>Đang làm</th><th>Trạng thái</th></tr></thead><tbody>${sales.map(a=>{const c=countsFor(a.name);return`<tr><td><b>${esc(a.name)}</b></td><td>${esc(a.username)}</td><td><span class="${c.unread?'red':''}"><b>${c.unread}</b></span></td><td><b>${c.pending}</b></td><td>${c.doing}</td><td><span class="pill ${a.active?'green':'red'}">${a.active?'Hoạt động':'Đã khóa'}</span></td></tr>`}).join('')}</tbody></table></div>`;
+ `<div class="people-grid" style="margin-bottom:15px">${sales.map(a=>{const c=countsFor(a.id);return`<div class="card person-card">${avatarHTML(a)}<b>${esc(a.name)}</b><div class="sub">${esc(a.title||'Sale Online')}</div><div class="quick-contact">${a.phone?`<span class="pill">☎ ${esc(a.phone)}</span>`:''}${a.zalo?`<span class="pill">Zalo ${esc(a.zalo)}</span>`:''}${a.email?`<span class="pill">${esc(a.email)}</span>`:''}</div><div style="margin-top:9px"><span class="${c.unread?'red':''}"><b>${c.unread}</b> chưa đọc</span> · <b>${c.pending}</b> chưa xong</div><div class="actions" style="justify-content:center;margin-top:10px"><button class="btn small" data-message-user="${a.id}">Nhắn tin</button><button class="btn small" data-view-profile="${a.id}">Hồ sơ</button><button class="btn small" data-reset-employee-pass="${a.id}">Đặt lại mật khẩu</button></div></div>`}).join('')}</div>
+ <div class="card tablewrap"><table class="table"><thead><tr><th>Nhân viên</th><th>Tài khoản</th><th>Chưa đọc</th><th>Chưa xong</th><th>Đang làm</th><th>Trạng thái</th></tr></thead><tbody>${sales.map(a=>{const c=countsFor(a.id);return`<tr><td><b>${esc(a.name)}</b></td><td>${esc(a.username)}</td><td><span class="${c.unread?'red':''}"><b>${c.unread}</b></span></td><td><b>${c.pending}</b></td><td>${c.doing}</td><td><span class="pill ${a.active?'green':'red'}">${a.active?'Hoạt động':'Đã khóa'}</span></td></tr>`}).join('')}</tbody></table></div>`;
 }
 
 function chatPage(){
@@ -1794,9 +1794,34 @@ function profilePage(){
     <div class="field full"><label>EMAIL LIÊN HỆ</label><input id="pEmail" type="email" value="${esc(a.email||'')}" placeholder="email@sevenam.vn"></div>
    </div>
    <div class="profile-hint">Avatar sẽ được tự thu nhỏ trước khi lưu để website nhẹ hơn. Thông tin liên hệ chỉ hiển thị cho người đăng nhập trong hệ thống này.</div>
-   <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="primary" id="saveProfile">Lưu hồ sơ</button></div>
+   <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:14px"><button class="btn" id="changeOwnPassword">Đổi mật khẩu của tôi</button><button class="primary" id="saveProfile">Lưu hồ sơ</button></div>
   </div>
  </div>`;
+}
+function openOwnPasswordModal(){
+ openModal('Đổi mật khẩu của tôi',`<div class="taskdesc" style="margin-bottom:12px">Mật khẩu mới áp dụng ngay cho tài khoản đang đăng nhập.</div>
+ <div class="field"><label>MẬT KHẨU MỚI</label><input id="ownPass1" type="password" minlength="8" autocomplete="new-password" placeholder="Tối thiểu 8 ký tự"></div>
+ <div class="field"><label>NHẬP LẠI MẬT KHẨU</label><input id="ownPass2" type="password" minlength="8" autocomplete="new-password" placeholder="Nhập lại mật khẩu"></div>`,
+ [{label:'Đổi mật khẩu',primary:true,action:async()=>{
+  const p1=document.getElementById('ownPass1')?.value||'',p2=document.getElementById('ownPass2')?.value||'';
+  if(p1.length<8)return showToast('Mật khẩu cần ít nhất 8 ký tự');
+  if(p1!==p2)return showToast('Hai mật khẩu chưa giống nhau');
+  const {error}=await supabaseClient.auth.updateUser({password:p1});
+  if(error)return showToast('Không đổi được mật khẩu: '+error.message);
+  closeModal();showToast('Đã đổi mật khẩu thành công')
+ }}])
+}
+function sendEmployeePasswordReset(id){
+ if(!isLeader())return;
+ const a=state.accounts.find(x=>x.id===id);if(!a)return;
+ const email=(a.username||a.email||'').trim().toLowerCase();
+ if(!email)return showToast('Nhân viên chưa có email đăng nhập');
+ openModal('Đặt lại mật khẩu — '+a.name,`<div class="taskdesc">Hệ thống sẽ gửi link đặt lại mật khẩu tới <b>${esc(email)}</b>. Nhân viên mở link và tự đặt mật khẩu mới; Leader không nhìn thấy mật khẩu của nhân viên.</div>`,
+ [{label:'Gửi link đặt lại',primary:true,action:async()=>{
+  const {error}=await supabaseClient.auth.resetPasswordForEmail(email,{redirectTo:APP_URL});
+  if(error)return showToast('Không gửi được link: '+error.message);
+  closeModal();showToast('Đã gửi link đặt lại mật khẩu cho '+a.name)
+ }}])
 }
 function openPublicProfile(id){
  const a=state.accounts.find(x=>x.id===id);if(!a)return;
@@ -2528,8 +2553,12 @@ function bindPage(){
 
  const cs=document.getElementById('chatSearch');if(cs)cs.oninput=()=>{chatSearch=cs.value;safeAutoRender()}
  document.querySelectorAll('[data-chat-user]').forEach(b=>b.onclick=()=>{const input=document.getElementById('chatInput');if(input&&activeChatId)chatDrafts[activeChatId]=input.value;activeChatId=b.dataset.chatUser;markConversationRead(activeChatId);render()})
+ document.querySelectorAll('[data-chat-group]').forEach(b=>b.onclick=()=>{const input=document.getElementById('chatInput');if(input&&activeChatId)chatDrafts[activeChatId]=input.value;activeChatId='group:'+b.dataset.chatGroup;markGroupRead(b.dataset.chatGroup);render()})
+ const createGroup=document.getElementById('createChatGroup');if(createGroup)createGroup.onclick=()=>openGroupChatModal()
+ document.querySelectorAll('[data-edit-chat-group]').forEach(b=>b.onclick=()=>openGroupChatModal(groupById(b.dataset.editChatGroup)))
  document.querySelectorAll('[data-message-user]').forEach(b=>b.onclick=()=>{activeChatId=b.dataset.messageUser;go('chat')})
  document.querySelectorAll('[data-view-profile]').forEach(b=>b.onclick=()=>openPublicProfile(b.dataset.viewProfile))
+ document.querySelectorAll('[data-reset-employee-pass]').forEach(b=>b.onclick=()=>sendEmployeePasswordReset(b.dataset.resetEmployeePass))
  const send=document.getElementById('sendMessage');if(send)send.onclick=sendMessage
  const ci=document.getElementById('chatInput');if(ci){
   ci.oninput=()=>{if(activeChatId)chatDrafts[activeChatId]=ci.value};
@@ -2546,6 +2575,7 @@ function bindPage(){
  const choose=document.getElementById('chooseAvatar');if(choose)choose.onclick=()=>document.getElementById('avatarFile').click()
  const af=document.getElementById('avatarFile');if(af)af.onchange=async()=>{try{const data=await resizeAvatar(af.files[0]);const {error}=await supabaseClient.from('profiles').update({avatar_url:data,updated_at:new Date().toISOString()}).eq('id',me().id);if(error)throw error;await syncProfiles();render();showToast('Đã cập nhật avatar')}catch(err){showToast(err.message)}}
  const rm=document.getElementById('removeAvatar');if(rm)rm.onclick=async()=>{const {error}=await supabaseClient.from('profiles').update({avatar_url:'',updated_at:new Date().toISOString()}).eq('id',me().id);if(error)return showToast(error.message);await syncProfiles();render();showToast('Đã xóa avatar')}
+ const cop=document.getElementById('changeOwnPassword');if(cop)cop.onclick=openOwnPasswordModal
  const sp=document.getElementById('saveProfile');if(sp)sp.onclick=async()=>{const a=me(),payload={full_name:document.getElementById('pName').value.trim()||a.name,title:document.getElementById('pTitle').value.trim(),phone:document.getElementById('pPhone').value.trim(),zalo:document.getElementById('pZalo').value.trim(),email:document.getElementById('pEmail').value.trim(),avatar_url:a.avatar||'',updated_at:new Date().toISOString()};const {error}=await supabaseClient.from('profiles').update(payload).eq('id',a.id);if(error)return showToast('Không lưu được hồ sơ: '+error.message);await syncProfiles();await syncRemoteTasks(true);render();showToast('Đã lưu hồ sơ')}
 
  const pw=document.getElementById('prevWeek');if(pw)pw.onclick=()=>{scheduleSelected.clear();scheduleWeekOffset--;render()}
