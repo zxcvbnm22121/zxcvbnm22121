@@ -1474,12 +1474,15 @@ function openAnnouncement(a={}){
   <div class="field"><label>MỨC ĐỘ</label><select id="anPriority"><option ${a.priority==='Bình thường'?'selected':''}>Bình thường</option><option ${a.priority==='Quan trọng'?'selected':''}>Quan trọng</option></select></div>
   <div class="field"><label>TRẠNG THÁI</label><select id="anActive"><option value="1" ${a.active!==false?'selected':''}>Đang hiển thị</option><option value="0" ${a.active===false?'selected':''}>Ẩn</option></select></div>
   <div class="field full"><label>NỘI DUNG</label><textarea id="anContent" rows="6" placeholder="Viết nội dung chương trình, lưu ý hoặc thông báo cần Sale nắm...">${esc(a.content||'')}</textarea></div>
- </div>`,[{label:editing?'Cập nhật':'Đăng thông báo',primary:true,action:()=>{
+ </div>`,[{label:editing?'Cập nhật':'Đăng thông báo',primary:true,action:async()=>{
    const title=document.getElementById('anTitle').value.trim(),content=document.getElementById('anContent').value.trim();
    if(!title||!content)return showToast('Nhập tiêu đề và nội dung');
-   const obj=a.id?a:{id:uid('an'),createdAt:new Date().toISOString(),createdBy:me().name};
-   obj.title=title;obj.content=content;obj.start=document.getElementById('anStart').value;obj.end=document.getElementById('anEnd').value;obj.priority=document.getElementById('anPriority').value;obj.active=document.getElementById('anActive').value==='1';obj.updatedAt=new Date().toISOString();
-   if(!a.id)state.announcements.unshift(obj);save();closeModal();render();showToast(editing?'Đã cập nhật thông báo':'Đã đăng chương trình')
+   const payload={title,content,start_date:document.getElementById('anStart').value||null,end_date:document.getElementById('anEnd').value||null,priority:document.getElementById('anPriority').value,active:document.getElementById('anActive').value==='1',updated_at:new Date().toISOString()};
+   let error;
+   if(editing)({error}=await supabaseClient.from('announcements').update(payload).eq('id',a.id));
+   else ({error}=await supabaseClient.from('announcements').insert({...payload,created_by:me().id}));
+   if(error)return showToast('Không lưu được thông báo: '+error.message);
+   await syncRemoteModules(true);closeModal();render();showToast(editing?'Đã cập nhật thông báo':'Đã đăng chương trình')
  }}])
 }
 function overviewPage(){
@@ -1566,7 +1569,7 @@ function taskActions(t){
 function employeesPage(){
  const sales=state.accounts.filter(a=>a.role==='Sale');
  return head('Nhân viên','Danh sách được đồng bộ từ Supabase Authentication / profiles')+
- `<div class="people-grid" style="margin-bottom:15px">${sales.map(a=>{const c=countsFor(a.name);return`<div class="card person-card">${avatarHTML(a)}<b>${esc(a.name)}</b><div class="sub">${esc(a.title||'Sale Online')}</div><div class="quick-contact">${a.phone?`<span class="pill">☎ ${esc(a.phone)}</span>`:''}${a.zalo?`<span class="pill">Zalo ${esc(a.zalo)}</span>`:''}${a.email?`<span class="pill">${esc(a.email)}</span>`:''}</div><div style="margin-top:9px"><span class="${c.unread?'red':''}"><b>${c.unread}</b> chưa đọc</span> · <b>${c.pending}</b> chưa xong</div><div class="actions" style="justify-content:center;margin-top:10px"><button class="btn small" data-message-user="${a.id}">Nhắn tin</button><button class="btn small" data-account="${a.id}">Tài khoản</button></div></div>`}).join('')}</div>
+ `<div class="people-grid" style="margin-bottom:15px">${sales.map(a=>{const c=countsFor(a.name);return`<div class="card person-card">${avatarHTML(a)}<b>${esc(a.name)}</b><div class="sub">${esc(a.title||'Sale Online')}</div><div class="quick-contact">${a.phone?`<span class="pill">☎ ${esc(a.phone)}</span>`:''}${a.zalo?`<span class="pill">Zalo ${esc(a.zalo)}</span>`:''}${a.email?`<span class="pill">${esc(a.email)}</span>`:''}</div><div style="margin-top:9px"><span class="${c.unread?'red':''}"><b>${c.unread}</b> chưa đọc</span> · <b>${c.pending}</b> chưa xong</div><div class="actions" style="justify-content:center;margin-top:10px"><button class="btn small" data-message-user="${a.id}">Nhắn tin</button><button class="btn small" data-view-profile="${a.id}">Hồ sơ</button></div></div>`}).join('')}</div>
  <div class="card tablewrap"><table class="table"><thead><tr><th>Nhân viên</th><th>Tài khoản</th><th>Chưa đọc</th><th>Chưa xong</th><th>Đang làm</th><th>Trạng thái</th></tr></thead><tbody>${sales.map(a=>{const c=countsFor(a.name);return`<tr><td><b>${esc(a.name)}</b></td><td>${esc(a.username)}</td><td><span class="${c.unread?'red':''}"><b>${c.unread}</b></span></td><td><b>${c.pending}</b></td><td>${c.doing}</td><td><span class="pill ${a.active?'green':'red'}">${a.active?'Hoạt động':'Đã khóa'}</span></td></tr>`}).join('')}</tbody></table></div>`;
 }
 
@@ -1737,24 +1740,33 @@ function openRequestForm(type,id=null){
   <div class="field"><label>${late?'NGÀY ĐẾN MUỘN':'TỪ NGÀY'}</label><input id="rqFrom" type="date" value="${x?.dateFrom||today()}"></div>
   ${late?`<div class="field"><label>GIỜ DỰ KIẾN CÓ MẶT</label><input id="rqArrival" type="time" value="${x?.arrivalTime||'09:30'}"></div>`:`<div class="field"><label>ĐẾN NGÀY</label><input id="rqTo" type="date" value="${x?.dateTo||x?.dateFrom||today()}"></div><div class="field"><label>PHẠM VI NGHỈ</label><select id="rqSession"><option ${x?.session==='Cả ngày'?'selected':''}>Cả ngày</option><option ${x?.session==='Buổi sáng'?'selected':''}>Buổi sáng</option><option ${x?.session==='Buổi chiều'?'selected':''}>Buổi chiều</option></select></div>`}
   <div class="field full"><label>LÝ DO</label><textarea id="rqReason" rows="4" placeholder="Nêu ngắn gọn lý do để Leader duyệt...">${esc(x?.reason||'')}</textarea></div>
- </div>`,[{label:'Gửi xin duyệt',primary:true,action:()=>{
+ </div>`,[{label:'Gửi xin duyệt',primary:true,action:async()=>{
    const from=document.getElementById('rqFrom').value,reason=document.getElementById('rqReason').value.trim();
    if(!from||!reason)return showToast('Chọn ngày và nhập lý do');
-   const obj=x||{id:uid('rq'),userId:me().id,employee:me().name,createdAt:new Date().toISOString()};
-   obj.type=type;obj.dateFrom=from;obj.reason=reason;obj.status='Chờ duyệt';obj.leaderNote='';obj.updatedAt=new Date().toISOString();
-   if(late){obj.dateTo=from;obj.arrivalTime=document.getElementById('rqArrival').value;obj.session=''}else{obj.dateTo=document.getElementById('rqTo').value||from;obj.session=document.getElementById('rqSession').value;obj.arrivalTime='';if(obj.dateTo<from)return showToast('Ngày kết thúc phải sau ngày bắt đầu')}
-   if(!x)state.leaveRequests.unshift(obj);save();closeModal();render();showToast('Đã gửi đơn cho Leader duyệt')
+   const to=late?from:(document.getElementById('rqTo').value||from);
+   if(to<from)return showToast('Ngày kết thúc phải sau ngày bắt đầu');
+   const payload={user_id:me().id,type,date_from:from,date_to:to,session:late?null:document.getElementById('rqSession').value,arrival_time:late?(document.getElementById('rqArrival').value||null):null,reason,status:'Chờ duyệt',leader_note:null,reviewed_at:null,reviewed_by:null,updated_at:new Date().toISOString()};
+   let error;
+   if(x)({error}=await supabaseClient.from('leave_requests').update(payload).eq('id',x.id));
+   else ({error}=await supabaseClient.from('leave_requests').insert(payload));
+   if(error)return showToast('Không gửi được đơn: '+error.message);
+   await syncRemoteModules(true);closeModal();render();showToast('Đã gửi đơn cho Leader duyệt')
  }}])
 }
 function reviewRequest(id){
  const x=state.leaveRequests.find(r=>r.id===id);if(!x||!isLeader())return;
  const when=x.type==='Nghỉ phép'?`${x.dateFrom}${x.dateTo!==x.dateFrom?' → '+x.dateTo:''} · ${x.session}`:`${x.dateFrom} · có mặt lúc ${x.arrivalTime}`;
  openModal('Duyệt '+x.type,`<div class="card pad"><b>${esc(x.employee)}</b><div class="sub" style="margin-top:4px">${when}</div><div class="taskdesc" style="margin-top:10px">${esc(x.reason)}</div></div><div class="field" style="margin-top:13px"><label>PHẢN HỒI CHO NHÂN VIÊN</label><textarea id="leaderRequestNote" rows="3" placeholder="Có thể để trống nếu không cần ghi chú"></textarea></div>`,[
-  {label:'Từ chối',danger:true,action:()=>{x.status='Từ chối';x.leaderNote=document.getElementById('leaderRequestNote').value.trim();x.reviewedAt=new Date().toISOString();x.reviewedBy=me().name;save();closeModal();render();showToast('Đã từ chối đơn')}},
-  {label:'Duyệt',primary:true,action:()=>{x.status='Đã duyệt';x.leaderNote=document.getElementById('leaderRequestNote').value.trim();x.reviewedAt=new Date().toISOString();x.reviewedBy=me().name;syncApprovedLeaveToSchedule(x);save();closeModal();render();showToast('Đã duyệt đơn xin phép')}}
+  {label:'Từ chối',danger:true,action:async()=>{const note=document.getElementById('leaderRequestNote').value.trim();const now=new Date().toISOString();const {error}=await supabaseClient.from('leave_requests').update({status:'Từ chối',leader_note:note||null,reviewed_at:now,reviewed_by:me().id,updated_at:now}).eq('id',x.id);if(error)return showToast(error.message);await syncRemoteModules(true);closeModal();render();showToast('Đã từ chối đơn')}},
+  {label:'Duyệt',primary:true,action:async()=>{const note=document.getElementById('leaderRequestNote').value.trim();const now=new Date().toISOString();const {error}=await supabaseClient.from('leave_requests').update({status:'Đã duyệt',leader_note:note||null,reviewed_at:now,reviewed_by:me().id,updated_at:now}).eq('id',x.id);if(error)return showToast(error.message);
+    if(x.type==='Nghỉ phép'){
+      const rows=dateRange(x.dateFrom,x.dateTo).map(ds=>({user_id:x.userId,work_date:ds,shift:'Nghỉ',start_time:null,end_time:null,note:`Nghỉ phép đã duyệt${x.session&&x.session!=='Cả ngày'?' · '+x.session:''}: ${x.reason||''}`,status:'Đã duyệt',reviewed_at:now,reviewed_by:me().id,updated_at:now}));
+      const {error:se}=await supabaseClient.from('work_schedules').upsert(rows,{onConflict:'user_id,work_date'});if(se)console.warn(se)
+    }
+    await syncRemoteModules(true);closeModal();render();showToast('Đã duyệt đơn xin phép')
+  }}
  ])
 }
-
 
 function saleWorkCalendar(days,userId){
  const user=state.accounts.find(a=>a.id===userId)||me();
@@ -1789,13 +1801,13 @@ function openScheduleForm(date,id=null){
   <div class="field"><label>BẮT ĐẦU</label><input id="scStart" type="time" value="${esc(x?.start||'08:00')}"></div>
   <div class="field"><label>KẾT THÚC</label><input id="scEnd" type="time" value="${esc(x?.end||'17:30')}"></div>
   <div class="field full"><label>GHI CHÚ</label><textarea id="scNote" rows="3" placeholder="VD: trực Web, trực Live, xin nghỉ...">${esc(x?.note||'')}</textarea></div>
- </div>`,[{label:'Lưu đăng ký',primary:true,action:()=>{const ds=document.getElementById('scDate').value,shift=document.getElementById('scShift').value;if(!ds)return showToast('Chọn ngày');let obj=x||{id:uid('sc'),userId:me().id,employee:me().name,createdAt:new Date().toISOString()};obj.date=ds;obj.shift=shift;obj.start=shift==='Nghỉ'?'':document.getElementById('scStart').value;obj.end=shift==='Nghỉ'?'':document.getElementById('scEnd').value;obj.note=document.getElementById('scNote').value.trim();obj.status='Chờ duyệt';obj.updatedAt=new Date().toISOString();const dup=state.schedules.find(s=>s.userId===me().id&&s.date===ds&&s.id!==obj.id);if(dup)return showToast('Ngày này đã có lịch đăng ký');if(!x)state.schedules.push(obj);save();closeModal();render();showToast('Đã đăng ký — lịch đã hiển thị trên tuần này')}}])
+ </div>`,[{label:'Lưu đăng ký',primary:true,action:async()=>{const ds=document.getElementById('scDate').value,shift=document.getElementById('scShift').value;if(!ds)return showToast('Chọn ngày');const payload={user_id:me().id,work_date:ds,shift,start_time:shift==='Nghỉ'?null:(document.getElementById('scStart').value||null),end_time:shift==='Nghỉ'?null:(document.getElementById('scEnd').value||null),note:document.getElementById('scNote').value.trim()||null,status:'Chờ duyệt',reviewed_at:null,reviewed_by:null,updated_at:new Date().toISOString()};let error;if(x)({error}=await supabaseClient.from('work_schedules').update(payload).eq('id',x.id));else ({error}=await supabaseClient.from('work_schedules').insert(payload));if(error)return showToast('Không lưu được lịch: '+error.message);await syncRemoteModules(true);closeModal();render();showToast('Đã đăng ký — lịch đã hiển thị trên tuần này')}}])
 }
 function openScheduleReview(id){
  const x=state.schedules.find(s=>s.id===id);if(!x)return;
  openModal('Duyệt lịch — '+x.employee,`<div class="grid g2"><div class="card pad"><div class="sub">Ngày</div><b>${new Date(x.date+'T00:00:00').toLocaleDateString('vi-VN',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'})}</b></div><div class="card pad"><div class="sub">Ca</div><b>${esc(x.shift)}</b></div></div><div class="taskdesc" style="margin-top:12px">${x.shift==='Nghỉ'?'Đăng ký nghỉ':`${esc(x.start||'--:--')} → ${esc(x.end||'--:--')}`}<br>${esc(x.note||'Không có ghi chú')}</div>`,[
-  {label:'Từ chối',danger:true,action:()=>{x.status='Từ chối';x.reviewedAt=new Date().toISOString();x.reviewedBy=me().name;save();closeModal();render();showToast('Đã từ chối lịch')}},
-  {label:'Duyệt',primary:true,action:()=>{x.status='Đã duyệt';x.reviewedAt=new Date().toISOString();x.reviewedBy=me().name;save();closeModal();render();showToast('Đã duyệt lịch')}}
+  {label:'Từ chối',danger:true,action:async()=>{const now=new Date().toISOString();const {error}=await supabaseClient.from('work_schedules').update({status:'Từ chối',reviewed_at:now,reviewed_by:me().id,updated_at:now}).eq('id',x.id);if(error)return showToast(error.message);await syncRemoteModules(true);closeModal();render();showToast('Đã từ chối lịch')}},
+  {label:'Duyệt',primary:true,action:async()=>{const now=new Date().toISOString();const {error}=await supabaseClient.from('work_schedules').update({status:'Đã duyệt',reviewed_at:now,reviewed_by:me().id,updated_at:now}).eq('id',x.id);if(error)return showToast(error.message);await syncRemoteModules(true);closeModal();render();showToast('Đã duyệt lịch')}}
  ])
 }
 
@@ -1849,17 +1861,19 @@ function reportSummary(){
 function saveReportRecord(){
  const type=reportTab;if(type==='summary')return;
  const date=document.getElementById('rpDate')?.value;if(!date)return showToast('Chọn ngày');
- let obj=reportEditId?(state.reports[type].find(x=>x.id===reportEditId)||{}):{id:uid('rp')};
- obj.date=date;
- if(type==='ads'){obj.employee=document.getElementById('rpEmployee').value;obj.data=+document.getElementById('rpData').value||0;obj.orders=+document.getElementById('rpOrders').value||0;obj.sales=+document.getElementById('rpSales').value||0;obj.products=+document.getElementById('rpProducts').value||0}
- if(type==='live'){obj.data=+document.getElementById('rpData').value||0;obj.orders=+document.getElementById('rpOrders').value||0;obj.sales=+document.getElementById('rpSales').value||0;obj.products=+document.getElementById('rpProducts').value||0;obj.enteredBy=me().name}
- if(type==='zalo'){obj.employee=document.getElementById('rpEmployee').value;obj.posts=+document.getElementById('rpPosts').value||0;obj.interested=+document.getElementById('rpInterested').value||0;obj.orders=+document.getElementById('rpOrders').value||0;obj.sales=+document.getElementById('rpSales').value||0;obj.products=+document.getElementById('rpProducts').value||0}
- if(type==='web'){obj.employee=document.getElementById('rpEmployee').value;obj.orders=+document.getElementById('rpOrders').value||0;obj.sales=+document.getElementById('rpSales').value||0;obj.products=+document.getElementById('rpProducts').value||0;obj.note=document.getElementById('rpNote').value.trim()}
- const list=state.reports[type],dup=list.find(x=>x.id!==obj.id&&x.date===date&&((type==='ads'||type==='zalo'||type==='web')?x.employee===obj.employee:true));
- if(dup)return showToast('Ngày này đã có dữ liệu cùng loại');
- upsertReport(type,obj);reportEditId=null;render();showToast('Đã lưu báo cáo')
+ const employeeName=document.getElementById('rpEmployee')?.value||me().name;
+ const employee=state.accounts.find(a=>a.name===employeeName);
+ const payload={channel:type,report_date:date,employee_id:employee?.id||null,employee_name:employeeName,entered_by:me().id,
+  data_count:+(document.getElementById('rpData')?.value||0),orders:+(document.getElementById('rpOrders')?.value||0),
+  sales:+(document.getElementById('rpSales')?.value||0),products:+(document.getElementById('rpProducts')?.value||0),
+  posts:+(document.getElementById('rpPosts')?.value||0),interested:+(document.getElementById('rpInterested')?.value||0),
+  note:(document.getElementById('rpNote')?.value||'').trim()||null,updated_at:new Date().toISOString()};
+ let error;
+ if(reportEditId)({error}=await supabaseClient.from('report_entries').update(payload).eq('id',reportEditId));
+ else ({error}=await supabaseClient.from('report_entries').insert(payload));
+ if(error)return showToast('Không lưu được báo cáo: '+error.message);
+ reportEditId=null;syncRemoteModules(true).then(()=>render());showToast('Đã lưu báo cáo')
 }
-
 function helpPage(){
  const leader=isLeader();
  const steps=leader?[
@@ -2027,8 +2041,13 @@ function editTask(id){
   await addRemoteHistory(id,'edited','Leader đã chỉnh sửa task');await syncRemoteTasks(true);closeModal();render();showToast('Đã cập nhật task')
  }}])
 }
-function deleteSelected(){
- showToast('Bản Online Beta chưa bật quyền xóa task trên database')
+async function deleteSelected(){
+ const ids=[...selected];if(!ids.length||!isLeader())return;
+ openModal('Xóa task',`<div class="taskdesc">Bạn sắp xóa <b>${ids.length} task</b>. Thao tác này sẽ xóa trên hệ thống chung.</div>`,[{label:'Xóa '+ids.length+' task',danger:true,action:async()=>{
+   const {error}=await supabaseClient.from('tasks').delete().in('id',ids);
+   if(error)return showToast('Không xóa được: '+error.message);
+   selected.clear();await syncRemoteTasks(true);closeModal();render();showToast('Đã xóa task')
+ }}])
 }
 function openAccount(a={}){
  const edit=!!a.id;
