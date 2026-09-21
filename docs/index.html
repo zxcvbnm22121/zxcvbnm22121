@@ -1103,7 +1103,7 @@ function load(){
   reports:{ads:[],live:[],zalo:[],web:[]},reportTargets:{}
  }
 }
-let state=load(),session=null,loginRole='Leader',route='overview',selected=new Set(),filters={q:'',employee:'',priority:''},activeChatId=null,chatSearch='',scheduleWeekOffset=0,scheduleSelected=new Set(),scheduleBulkBusy=false,reportTab='ads',reportMonth=today().slice(0,7),reportEditId=null,requestFilter='all',taskChannel=null,lastTaskSyncAt=null,chatDrafts={},chatSending=false,taskCreating=false,chatImageUrlCache=new Map(),exportFrom=today(),exportTo=today(),exportBusy=false;
+let state=load(),session=null,loginRole='Leader',route='overview',selected=new Set(),filters={q:'',employee:'',priority:''},workboardStatus='pending',workboardGroup='',activeChatId=null,chatSearch='',scheduleWeekOffset=0,scheduleSelected=new Set(),scheduleBulkBusy=false,reportTab='ads',reportMonth=today().slice(0,7),reportEditId=null,requestFilter='all',taskChannel=null,lastTaskSyncAt=null,chatDrafts={},chatSending=false,taskCreating=false,chatImageUrlCache=new Map(),exportFrom=today(),exportTo=today(),exportBusy=false;
 function save(){}
 function isChatComposing(){
  const el=document.activeElement;
@@ -1550,10 +1550,7 @@ function navItems(){
  return isLeader()?[
   ['overview','◫','Tổng quan',''],
   ['assign','＋','Giao việc',''],
-  ['unread','●','Chưa đọc',c.unread],
-  ['pending','◷','Chưa hoàn thành',c.pending],
-  ['doing','▶','Đang làm',c.doing],
-  ['done','✓','Hoàn thành',''],
+  ['workboard','▦','Theo dõi công việc',c.pending],
   ['employees','♙','Nhân viên',''],
   ['permission','◴','Xin phép',requestPendingCount()],
   ['schedule','▦','Lịch làm việc',schedulePendingCount()],
@@ -1583,6 +1580,7 @@ function renderNav(){
 const meta={
  overview:['Tổng quan','Leader nhìn ngay việc nào đang tồn'],
  assign:['Giao việc','Tạo task và đẩy cho nhân viên'],
+ workboard:['Theo dõi công việc','Một màn hình theo dõi trạng thái và nhóm việc của từng nhân viên'],
  unread:['Chưa đọc','Task nhân viên chưa xác nhận đã đọc'],
  pending:['Chưa hoàn thành','Tất cả công việc vẫn đang mở'],
  doing:['Đang làm','Công việc nhân viên đã bắt đầu'],
@@ -1599,12 +1597,12 @@ const meta={
 function go(r){route=r;selected.clear();render()}
 function render(){
  const a=me();if(!a){showLogin();return}
- if(!isLeader()&&['overview','assign','employees','export'].includes(route))route='pending';
+ if(!isLeader()&&['overview','assign','employees','export','workboard'].includes(route))route='pending';
  renderNav();
  document.getElementById('displayName').textContent=a.name;document.getElementById('roleText').textContent=a.role;const av=document.getElementById('avatar');av.innerHTML=a.avatar?`<img class="avatar-img" src="${esc(a.avatar)}" alt="">`:initials(a.name);
  const m=meta[route]||['Công việc',''];document.getElementById('topTitle').textContent=m[0];document.getElementById('topSub').textContent=m[1];
- document.getElementById('topAction').innerHTML=`<span class="online-pill"><i></i> ONLINE</span> `+(isLeader()&&route==='overview'?`<button class="btn" onclick="go('export')">⇩ Xuất Excel</button> `:'')+(isLeader()&&['overview','unread','pending','doing','done'].includes(route)?`<button class="primary" onclick="go('assign')">+ Giao việc</button>`:'');
- let h='';if(route==='overview')h=overviewPage();if(route==='assign')h=assignPage();if(['unread','pending','doing','done'].includes(route))h=tasksPage(route);if(route==='employees')h=employeesPage();if(route==='permission')h=permissionPage();if(route==='schedule')h=schedulePage();if(route==='report')h=reportPage();if(route==='export')h=exportPage();if(route==='chat')h=chatPage();if(route==='profile')h=profilePage();if(route==='help')h=helpPage();
+ document.getElementById('topAction').innerHTML=`<span class="online-pill"><i></i> ONLINE</span> `+(isLeader()&&route==='overview'?`<button class="btn" onclick="go('export')">⇩ Xuất Excel</button> `:'')+(isLeader()&&['overview','workboard','unread','pending','doing','done'].includes(route)?`<button class="primary" onclick="go('assign')">+ Giao việc</button>`:'');
+ let h='';if(route==='overview')h=overviewPage();if(route==='assign')h=assignPage();if(route==='workboard')h=workboardPage();if(['unread','pending','doing','done'].includes(route))h=tasksPage(route);if(route==='employees')h=employeesPage();if(route==='permission')h=permissionPage();if(route==='schedule')h=schedulePage();if(route==='report')h=reportPage();if(route==='export')h=exportPage();if(route==='chat')h=chatPage();if(route==='profile')h=profilePage();if(route==='help')h=helpPage();
  document.getElementById('content').innerHTML=h;bindPage()
 }
 function head(title,desc,action=''){return`<div class="head"><div><h1>${title}</h1><p>${desc}</p></div>${action}</div>`}
@@ -1651,7 +1649,7 @@ function overviewPage(){
  </div>
  <div class="grid g2">
   <div class="card pad"><div class="sectionhead"><h3>Tình trạng theo nhân viên</h3><small>Bấm để xem task chưa hoàn thành</small></div>
-   <div class="empgrid">${sales.map(s=>{const x=countsFor(s.id);return`<div class="empcard" onclick="filters.employee='${s.id}';go('pending')" style="cursor:pointer"><div class="avatar">${initials(s.name)}</div><div><b>${esc(s.name)}</b><div class="sub">${x.unread?`<span class="red">${x.unread} chưa đọc</span>`:'Đã đọc hết task'}</div></div><div class="empnums"><div><b>${x.pending}</b><span>CHƯA XONG</span></div><div><b class="${x.overdue?'red':''}">${x.overdue}</b><span>QUÁ HẠN</span></div></div></div>`}).join('')}</div>
+   <div class="empgrid">${sales.map(s=>{const x=countsFor(s.id);return`<div class="empcard" onclick="filters.employee='${s.id}';workboardStatus='pending';workboardGroup='';go('workboard')" style="cursor:pointer"><div class="avatar">${initials(s.name)}</div><div><b>${esc(s.name)}</b><div class="sub">${x.unread?`<span class="red">${x.unread} chưa đọc</span>`:'Đã đọc hết task'}</div></div><div class="empnums"><div><b>${x.pending}</b><span>CHƯA XONG</span></div><div><b class="${x.overdue?'red':''}">${x.overdue}</b><span>QUÁ HẠN</span></div></div></div>`}).join('')}</div>
   </div>
   <div class="card pad"><div class="sectionhead"><h3>Xin phép chờ duyệt</h3><button class="btn small" onclick="go('permission')">Xem tất cả</button></div>
    <div class="request-list">${(state.leaveRequests||[]).filter(x=>x.status==='Chờ duyệt').slice(0,5).map(requestCard).join('')||'<div class="empty" style="padding:26px 10px"><b>Không có đơn chờ duyệt</b></div>'}</div>
