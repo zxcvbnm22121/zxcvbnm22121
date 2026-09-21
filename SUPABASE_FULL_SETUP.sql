@@ -648,16 +648,25 @@ using (
 -- ============================================================
 -- 10. REALTIME
 -- ============================================================
-do $
-begin
-  begin alter publication supabase_realtime add table public.profiles; exception when duplicate_object then null; end;
-  begin alter publication supabase_realtime add table public.tasks; exception when duplicate_object then null; end;
-  begin alter publication supabase_realtime add table public.task_history; exception when duplicate_object then null; end;
-  begin alter publication supabase_realtime add table public.messages; exception when duplicate_object then null; end;
-  begin alter publication supabase_realtime add table public.announcements; exception when duplicate_object then null; end;
-  begin alter publication supabase_realtime add table public.work_schedules; exception when duplicate_object then null; end;
-  begin alter publication supabase_realtime add table public.leave_requests; exception when duplicate_object then null; end;
-  begin alter publication supabase_realtime add table public.report_entries; exception when duplicate_object then null; end;
-end $$;
+-- Rebuild publication membership without using a DO dollar-quoted block.
+alter publication supabase_realtime drop table if exists
+  public.profiles,
+  public.tasks,
+  public.task_history,
+  public.messages,
+  public.announcements,
+  public.work_schedules,
+  public.leave_requests,
+  public.report_entries;
+
+alter publication supabase_realtime add table
+  public.profiles,
+  public.tasks,
+  public.task_history,
+  public.messages,
+  public.announcements,
+  public.work_schedules,
+  public.leave_requests,
+  public.report_entries;
 
 select 'Seven.AM Supabase backend setup complete — hardened' as result;
