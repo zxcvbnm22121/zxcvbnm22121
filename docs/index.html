@@ -1097,15 +1097,22 @@ const seed={
 function today(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function clone(x){return JSON.parse(JSON.stringify(x))}
 function load(){try{localStorage.removeItem(KEY)}catch(e){}return clone(seed)}
-let state=load(),session=null,loginRole='Leader',route='overview',selected=new Set(),filters={q:'',employee:'',priority:''},activeChatId=null,chatSearch='',scheduleWeekOffset=0,reportTab='ads',reportMonth=today().slice(0,7),reportEditId=null,requestFilter='all',taskChannel=null,lastTaskSyncAt=null,chatDrafts={};
+let state=load(),session=null,loginRole='Leader',route='overview',selected=new Set(),filters={q:'',employee:'',priority:''},activeChatId=null,chatSearch='',scheduleWeekOffset=0,reportTab='ads',reportMonth=today().slice(0,7),reportEditId=null,requestFilter='all',taskChannel=null,lastTaskSyncAt=null,chatDrafts={},chatSending=false,taskCreating=false,chatImageUrlCache=new Map();
 function save(){}
 function isChatComposing(){
  const el=document.activeElement;
  return route==='chat'&&el&&el.id==='chatInput';
 }
 function safeAutoRender(){
- if(isChatComposing()){renderNav();return}
- render()
+ const input=document.getElementById('chatInput');
+ const focused=route==='chat'&&input&&document.activeElement===input;
+ const start=focused?input.selectionStart:null,end=focused?input.selectionEnd:null;
+ if(focused&&activeChatId)chatDrafts[activeChatId]=input.value;
+ render();
+ if(focused){
+  const next=document.getElementById('chatInput');
+  if(next){next.focus();const p=Math.min(start??next.value.length,next.value.length),q=Math.min(end??p,next.value.length);next.setSelectionRange(p,q)}
+ }
 }
 function uid(p){return p+Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
@@ -1137,7 +1144,7 @@ async function syncRemoteTasks(silent=false){
  if(!session?.id)return;
  const [{data:rows,error:e1},{data:history,error:e2}]=await Promise.all([
   supabaseClient.from('tasks').select('*').order('created_at',{ascending:false}),
-  supabaseClient.from('task_history').select('*').order('created_at',{ascending:true})
+  supabaseClient.from('task_history').select('*').order('created_at',{ascending:false}).limit(5000)
  ]);
  if(e1)throw e1;if(e2)console.warn('task_history',e2);
  const histBy={};(history||[]).forEach(h=>(histBy[h.task_id]??=[]).push(h));
@@ -1160,12 +1167,11 @@ async function addRemoteHistory(taskId,action,detail){
  if(error)console.warn('history insert',error)
 }
 async function activateRemoteUser(user){
- await syncProfiles();
  const profile=state.accounts.find(a=>a.id===user.id);
  if(!profile)throw new Error('Tài khoản chưa có profile. Hãy kiểm tra bảng profiles trong Supabase.');
  if(!profile.active)throw new Error('Tài khoản này đang bị khóa.');
  session={id:user.id};route=profile.role==='Leader'?'overview':'pending';
- await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true),syncRemoteModules(true)]);subscribeTaskChanges();showApp();render()
+ await syncProfiles();await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true),syncRemoteModules(true)]);subscribeTaskChanges();showApp();render()
 }
 async function syncRemoteModules(silent=false){
  if(!session?.id)return;
@@ -1217,6 +1223,7 @@ function subscribeTaskChanges(){
  taskChannel=supabaseClient.channel('sevenam-task-sync')
   .on('postgres_changes',{event:'*',schema:'public',table:'tasks'},()=>syncRemoteTasks(true).then(()=>safeAutoRender()).catch(console.error))
   .on('postgres_changes',{event:'*',schema:'public',table:'task_history'},()=>syncRemoteTasks(true).then(()=>safeAutoRender()).catch(console.error))
+  .on('postgres_changes',{event:'*',schema:'public',table:'profiles'},()=>syncProfiles().then(()=>Promise.all([syncRemoteTasks(true),syncRemoteModules(true)])).then(()=>safeAutoRender()).catch(console.error))
   .on('postgres_changes',{event:'*',schema:'public',table:'messages'},()=>syncRemoteMessages(true).then(()=>safeAutoRender()).catch(console.error))
   .on('postgres_changes',{event:'*',schema:'public',table:'announcements'},()=>syncRemoteModules(true).then(()=>safeAutoRender()).catch(console.error))
   .on('postgres_changes',{event:'*',schema:'public',table:'work_schedules'},()=>syncRemoteModules(true).then(()=>safeAutoRender()).catch(console.error))
@@ -1261,14 +1268,18 @@ function contactUsers(){
 }
 async function signedChatImage(path){
  if(!path)return '';
+ const cached=chatImageUrlCache.get(path);
+ if(cached&&cached.expires>Date.now())return cached.url;
  const {data,error}=await supabaseClient.storage.from('chat-images').createSignedUrl(path,3600);
- return error?'':(data?.signedUrl||'')
+ const url=error?'':(data?.signedUrl||'');
+ if(url)chatImageUrlCache.set(path,{url,expires:Date.now()+50*60*1000});
+ return url
 }
 async function syncRemoteMessages(silent=false){
  if(!session?.id)return;
- const {data,error}=await supabaseClient.from('messages').select('*').order('created_at',{ascending:true});
+ const {data,error}=await supabaseClient.from('messages').select('*').order('created_at',{ascending:false}).limit(1000);
  if(error)throw error;
- const rows=data||[];
+ const rows=(data||[]).slice().reverse();
  const paths=[...new Set(rows.map(x=>x.image_path).filter(Boolean))];
  const signed={};
  await Promise.all(paths.map(async p=>{signed[p]=await signedChatImage(p)}));
@@ -2064,7 +2075,7 @@ document.getElementById('modalBack').onclick=e=>{if(e.target.id==='modalBack')cl
 document.getElementById('closeLightbox').onclick=()=>document.getElementById('imageLightbox').classList.remove('open')
 document.getElementById('imageLightbox').onclick=e=>{if(e.target.id==='imageLightbox')document.getElementById('imageLightbox').classList.remove('open')}
 document.addEventListener('click',e=>{const ep=document.getElementById('emojiPicker'),eb=document.getElementById('emojiBtn');if(ep&&eb&&!ep.contains(e.target)&&!eb.contains(e.target))ep.classList.remove('open')})
-setInterval(async()=>{if(me()){try{await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true),syncRemoteModules(true)]);safeAutoRender()}catch(e){console.warn('poll sync',e)}}},12000)
+setInterval(async()=>{if(me()){try{await syncProfiles();const current=me();if(!current||!current.active){await supabaseClient.auth.signOut();session=null;showLogin();return}await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true),syncRemoteModules(true)]);safeAutoRender()}catch(e){console.warn('poll sync',e)}}},30000)
 supabaseClient.auth.onAuthStateChange((event,sess)=>{
  if(event==='PASSWORD_RECOVERY'){setTimeout(openRecoveryModal,0);return}
  if(event==='SIGNED_OUT'){session=null;showLogin()}
