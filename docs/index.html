@@ -1612,7 +1612,7 @@ function navItems(){
 }
 function renderNav(){
  document.getElementById('nav').innerHTML=`<div class="navlabel">${isLeader()?'QUẢN LÝ CÔNG VIỆC':'CÔNG VIỆC CỦA TÔI'}</div>`+
- navItems().map(([r,i,l,b])=>`<button class="navitem ${route===r?'active':''}" data-route="${r}"><span class="navicon">${i}</span>${l}${b?`<span class="badge ${r==='pending'||r==='schedule'||r==='permission'?'orange':r==='doing'?'blue':''}">${b}</span>`:''}</button>`).join('');
+ navItems().map(([r,i,l,b])=>`<button class="navitem ${route===r?'active':''}" data-route="${r}"><span class="navicon">${i}</span>${l}${b?`<span class="badge ${r==='pending'||r==='workboard'||r==='schedule'||r==='permission'?'orange':r==='doing'?'blue':''}">${b}</span>`:''}</button>`).join('');
  document.querySelectorAll('[data-route]').forEach(b=>b.onclick=()=>go(b.dataset.route))
 }
 const meta={
@@ -1771,7 +1771,10 @@ function workboardEmployeeCard(u){
     ${avatarHTML(u)}
     <span><b>${esc(u.name)}</b><small>${esc(u.title||'Sale Online')}</small></span>
    </button>
-   ${late?`<span class="pill red">${late} quá hạn</span>`:'<span class="pill green">Không quá hạn</span>'}
+   <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+    ${!u.active?'<span class="pill red">Đã khóa</span>':''}
+    ${late?`<span class="pill red">${late} quá hạn</span>`:'<span class="pill green">Không quá hạn</span>'}
+   </div>
   </div>
   <div class="wb-status-row">
    <button class="wb-mini ${selectedEmp&&workboardStatus==='unread'?'active redish':''}" data-wb-emp-status="${u.id}|unread"><span>CHƯA ĐỌC</span><b class="${unread?'red':''}">${unread}</b></button>
@@ -1788,7 +1791,7 @@ function workboardEmployeeCard(u){
  </div>`
 }
 function workboardPage(){
- const sales=state.accounts.filter(a=>a.role==='Sale'&&a.active);
+ const sales=state.accounts.filter(a=>a.role==='Sale');
  const all=state.tasks;
  const totals={
   unread:all.filter(t=>!t.read&&t.status!=='done').length,
@@ -1798,7 +1801,7 @@ function workboardPage(){
  };
  const groups=[...new Set(all.map(t=>t.group||'Khác'))].sort((a,b)=>a.localeCompare(b,'vi'));
  const detail=workboardFilteredTasks();
- const statusLabel={unread:'Chưa đọc',pending:'Chưa hoàn thành',doing:'Đang làm',done:'Hoàn thành'}[workboardStatus]||'Tất cả';
+ const statusLabel={unread:'Chưa đọc',pending:'Chưa hoàn thành',doing:'Đang làm',done:'Hoàn thành'}[workboardStatus]||'Tất cả trạng thái';
  const selectedEmployee=state.accounts.find(a=>a.id===filters.employee);
  return head('Theo dõi công việc','Theo dõi toàn bộ trạng thái và nhóm việc của từng nhân viên trên một màn hình')+
  `<div class="wb-kpis">
@@ -1808,7 +1811,7 @@ function workboardPage(){
   <button class="card wb-kpi ${workboardStatus==='done'?'active':''}" data-wb-status="done"><span>HOÀN THÀNH</span><b class="green">${totals.done}</b><small>Task đã chốt kết quả</small></button>
  </div>
  <div class="sectionhead wb-section-head"><div><h3>Theo từng nhân viên</h3><small>Bấm số trạng thái hoặc nhóm việc để lọc chi tiết</small></div><button class="btn small" id="wbClearEmployee">Xem toàn team</button></div>
- <div class="wb-people">${sales.map(workboardEmployeeCard).join('')||'<div class="card empty"><b>Chưa có nhân viên Sale hoạt động</b></div>'}</div>
+ <div class="wb-people">${sales.map(workboardEmployeeCard).join('')||'<div class="card empty"><b>Chưa có nhân viên Sale</b></div>'}</div>
  <div class="card pad wb-detail-wrap">
   <div class="sectionhead"><div><h3>Task chi tiết</h3><small>${esc(statusLabel)}${selectedEmployee?' · '+esc(selectedEmployee.name):' · Toàn team'}${workboardGroup?' · '+esc(workboardGroup):''} · ${detail.length} task</small></div></div>
   <div class="toolbar">
@@ -2678,17 +2681,17 @@ function helpPage(){
 }
 
 function bindPage(){
- const q=document.getElementById('q');if(q)q.oninput=()=>{filters.q=q.value;safeAutoRender()}
- const ef=document.getElementById('employeeFilter');if(ef)ef.onchange=()=>{filters.employee=ef.value;safeAutoRender()}
- const pf=document.getElementById('priorityFilter');if(pf)pf.onchange=()=>{filters.priority=pf.value;safeAutoRender()}
- const wbg=document.getElementById('wbGroupFilter');if(wbg)wbg.onchange=()=>{workboardGroup=wbg.value;safeAutoRender()}
+ const q=document.getElementById('q');if(q)q.oninput=()=>{filters.q=q.value;selected.clear();safeAutoRender()}
+ const ef=document.getElementById('employeeFilter');if(ef)ef.onchange=()=>{filters.employee=ef.value;selected.clear();safeAutoRender()}
+ const pf=document.getElementById('priorityFilter');if(pf)pf.onchange=()=>{filters.priority=pf.value;selected.clear();safeAutoRender()}
+ const wbg=document.getElementById('wbGroupFilter');if(wbg)wbg.onchange=()=>{workboardGroup=wbg.value;selected.clear();safeAutoRender()}
  document.querySelectorAll('[data-wb-status]').forEach(b=>b.onclick=()=>{workboardStatus=b.dataset.wbStatus;filters.employee='';workboardGroup='';selected.clear();safeAutoRender()})
- document.querySelectorAll('[data-wb-employee]').forEach(b=>b.onclick=()=>{filters.employee=b.dataset.wbEmployee;workboardGroup='';selected.clear();safeAutoRender()})
+ document.querySelectorAll('[data-wb-employee]').forEach(b=>b.onclick=()=>{filters.employee=b.dataset.wbEmployee;workboardStatus='';workboardGroup='';selected.clear();safeAutoRender()})
  document.querySelectorAll('[data-wb-emp-status]').forEach(b=>b.onclick=()=>{const [emp,status]=b.dataset.wbEmpStatus.split('|');filters.employee=emp;workboardStatus=status;workboardGroup='';selected.clear();safeAutoRender()})
- document.querySelectorAll('[data-wb-group]').forEach(b=>b.onclick=()=>{filters.employee=b.dataset.wbGroupEmployee;workboardGroup=decodeURIComponent(b.dataset.wbGroup);selected.clear();safeAutoRender()})
+ document.querySelectorAll('[data-wb-group]').forEach(b=>b.onclick=()=>{filters.employee=b.dataset.wbGroupEmployee;workboardStatus='';workboardGroup=decodeURIComponent(b.dataset.wbGroup);selected.clear();safeAutoRender()})
  const wbce=document.getElementById('wbClearEmployee');if(wbce)wbce.onclick=()=>{filters.employee='';workboardGroup='';selected.clear();safeAutoRender()}
  const cf=document.getElementById('clearFilter');if(cf)cf.onclick=()=>{filters={q:'',employee:'',priority:''};workboardGroup='';selected.clear();render()}
- const all=document.getElementById('selectAll');if(all)all.onchange=()=>{filteredTasks(route).forEach(t=>all.checked?selected.add(t.id):selected.delete(t.id));render()}
+ const all=document.getElementById('selectAll');if(all)all.onchange=()=>{selected.clear();if(all.checked)filteredTasks(route).forEach(t=>selected.add(t.id));render()}
  document.querySelectorAll('.taskSelect').forEach(x=>x.onchange=()=>{x.checked?selected.add(x.dataset.id):selected.delete(x.dataset.id);safeAutoRender()})
  const del=document.getElementById('deleteSelected');if(del)del.onclick=deleteSelected
  document.querySelectorAll('[data-read]').forEach(b=>b.onclick=()=>openTask(b.dataset.read,true))
