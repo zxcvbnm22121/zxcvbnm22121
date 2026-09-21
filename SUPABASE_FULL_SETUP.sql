@@ -648,18 +648,9 @@ using (
 -- ============================================================
 -- 10. REALTIME
 -- ============================================================
--- Rebuild publication membership without using a DO dollar-quoted block.
-alter publication supabase_realtime drop table if exists
-  public.profiles,
-  public.tasks,
-  public.task_history,
-  public.messages,
-  public.announcements,
-  public.work_schedules,
-  public.leave_requests,
-  public.report_entries;
-
-alter publication supabase_realtime add table
+-- Replace the publication membership with the Seven.AM tables.
+-- This syntax is idempotent and avoids unsupported DROP TABLE IF EXISTS.
+alter publication supabase_realtime set table
   public.profiles,
   public.tasks,
   public.task_history,
