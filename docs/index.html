@@ -1640,8 +1640,27 @@ function render(){
  document.getElementById('displayName').textContent=a.name;document.getElementById('roleText').textContent=a.role;const av=document.getElementById('avatar');av.innerHTML=a.avatar?`<img class="avatar-img" src="${esc(a.avatar)}" alt="">`:initials(a.name);
  const m=meta[route]||['Công việc',''];document.getElementById('topTitle').textContent=m[0];document.getElementById('topSub').textContent=m[1];
  document.getElementById('topAction').innerHTML=`<span class="online-pill"><i></i> ONLINE</span> `+(isLeader()&&route==='overview'?`<button class="btn" onclick="go('export')">⇩ Xuất Excel</button> `:'')+(isLeader()&&['overview','workboard','unread','pending','doing','done'].includes(route)?`<button class="primary" onclick="go('assign')">+ Giao việc</button>`:'');
- let h='';if(route==='overview')h=overviewPage();if(route==='assign')h=assignPage();if(route==='workboard')h=workboardPage();if(['unread','pending','doing','done'].includes(route))h=tasksPage(route);if(route==='employees')h=employeesPage();if(route==='permission')h=permissionPage();if(route==='schedule')h=schedulePage();if(route==='report')h=reportPage();if(route==='export')h=exportPage();if(route==='chat')h=chatPage();if(route==='profile')h=profilePage();if(route==='help')h=helpPage();
- document.getElementById('content').innerHTML=h;bindPage()
+ let h='';
+ try{
+  if(route==='overview')h=overviewPage();
+  if(route==='assign')h=assignPage();
+  if(route==='workboard')h=workboardPage();
+  if(['unread','pending','doing','done'].includes(route))h=tasksPage(route);
+  if(route==='employees')h=employeesPage();
+  if(route==='permission')h=permissionPage();
+  if(route==='schedule')h=schedulePage();
+  if(route==='report')h=reportPage();
+  if(route==='export')h=exportPage();
+  if(route==='chat')h=chatPage();
+  if(route==='profile')h=profilePage();
+  if(route==='help')h=helpPage();
+ }catch(error){
+  console.error('route render failed',route,error);
+  h=`<div class="card pad"><div class="error"><b>Không hiển thị được màn hình này</b><br>${esc(error?.message||error)}</div></div>`
+ }
+ const content=document.getElementById('content');
+ content.innerHTML=h||'<div class="card empty"><b>Không có nội dung để hiển thị</b></div>';
+ try{bindPage()}catch(error){console.error('bind page failed',route,error)}
 }
 function head(title,desc,action=''){return`<div class="head"><div><h1>${title}</h1><p>${desc}</p></div>${action}</div>`}
 
@@ -1728,103 +1747,126 @@ function filteredTasks(mode){
  return a.sort((x,y)=>{if(x.status==='done'&&y.status==='done')return new Date(y.completedAt||0)-new Date(x.completedAt||0);if(overdue(x)!==overdue(y))return overdue(x)?-1:1;if(x.priority!==y.priority)return['Cao','Trung bình','Thấp'].indexOf(x.priority)-['Cao','Trung bình','Thấp'].indexOf(y.priority);return new Date(x.deadline)-new Date(y.deadline)})
 }
 function workboardStatusMatch(t,status){
- if(status==='unread')return !t.read&&t.status!=='done';
- if(status==='pending')return t.status!=='done';
- if(status==='doing')return t.status==='doing';
- if(status==='done')return t.status==='done';
+ const s=String(status||'');
+ if(s==='unread')return !t?.read&&t?.status!=='done';
+ if(s==='pending')return t?.status!=='done';
+ if(s==='doing')return t?.status==='doing';
+ if(s==='done')return t?.status==='done';
  return true
 }
+function workboardTasks(){
+ return Array.isArray(state.tasks)?state.tasks:[]
+}
+function workboardSales(){
+ return (Array.isArray(state.accounts)?state.accounts:[]).filter(a=>a&&a.role==='Sale')
+}
 function workboardFilteredTasks(){
- let a=state.tasks.slice();
+ let a=workboardTasks().slice();
  if(workboardStatus)a=a.filter(t=>workboardStatusMatch(t,workboardStatus));
- if(filters.employee)a=a.filter(t=>t.assigneeId===filters.employee);
- if(workboardGroup)a=a.filter(t=>(t.group||'Khác')===workboardGroup);
- if(filters.priority)a=a.filter(t=>t.priority===filters.priority);
- if(filters.q){
-  const q=filters.q.toLowerCase();
-  a=a.filter(t=>(t.title+' '+t.description+' '+t.assignee+' '+(t.group||'')).toLowerCase().includes(q))
- }
+ if(filters?.employee)a=a.filter(t=>String(t?.assigneeId||'')===String(filters.employee));
+ if(workboardGroup)a=a.filter(t=>String(t?.group||'Khác')===String(workboardGroup));
+ if(filters?.priority)a=a.filter(t=>String(t?.priority||'')===String(filters.priority));
+ const q=String(filters?.q||'').trim().toLowerCase();
+ if(q)a=a.filter(t=>(String(t?.title||'')+' '+String(t?.description||'')+' '+String(t?.assignee||'')+' '+String(t?.group||'')).toLowerCase().includes(q));
  return a.sort((x,y)=>{
-  if(x.status==='done'&&y.status==='done')return new Date(y.completedAt||0)-new Date(x.completedAt||0);
+  if(x?.status==='done'&&y?.status==='done')return new Date(y?.completedAt||0)-new Date(x?.completedAt||0);
   if(overdue(x)!==overdue(y))return overdue(x)?-1:1;
-  if(x.priority!==y.priority)return ['Cao','Trung bình','Thấp'].indexOf(x.priority)-['Cao','Trung bình','Thấp'].indexOf(y.priority);
-  return new Date(x.deadline)-new Date(y.deadline)
+  const rank=v=>['Cao','Trung bình','Thấp'].indexOf(v)<0?9:['Cao','Trung bình','Thấp'].indexOf(v);
+  if(rank(x?.priority)!==rank(y?.priority))return rank(x?.priority)-rank(y?.priority);
+  return new Date(x?.deadline||8640000000000000)-new Date(y?.deadline||8640000000000000)
  })
 }
 function workboardEmployeeCard(u){
- const tasks=state.tasks.filter(t=>t.assigneeId===u.id);
- const unread=tasks.filter(t=>!t.read&&t.status!=='done').length;
- const pending=tasks.filter(t=>t.status!=='done').length;
- const doing=tasks.filter(t=>t.status==='doing').length;
- const done=tasks.filter(t=>t.status==='done').length;
- const late=tasks.filter(overdue).length;
+ const tasks=workboardTasks().filter(t=>String(t?.assigneeId||'')===String(u.id));
+ const unread=tasks.filter(t=>!t?.read&&t?.status!=='done').length;
+ const pending=tasks.filter(t=>t?.status!=='done').length;
+ const doing=tasks.filter(t=>t?.status==='doing').length;
+ const done=tasks.filter(t=>t?.status==='done').length;
+ const late=tasks.filter(t=>overdue(t)).length;
  const groups={};
  tasks.forEach(t=>{
-  const g=t.group||'Khác';
+  const g=String(t?.group||'Khác');
   if(!groups[g])groups[g]={total:0,open:0};
-  groups[g].total++;if(t.status!=='done')groups[g].open++
+  groups[g].total++;
+  if(t?.status!=='done')groups[g].open++
  });
- const selectedEmp=filters.employee===u.id;
+ const selectedEmp=String(filters?.employee||'')===String(u.id);
+ const groupButtons=Object.entries(groups)
+  .sort((a,b)=>b[1].open-a[1].open||b[1].total-a[1].total||String(a[0]).localeCompare(String(b[0]),'vi'))
+  .map(([g,n])=>`<button type="button" class="wb-group ${selectedEmp&&workboardGroup===g?'active':''}" data-wb-group="${encodeURIComponent(g)}" data-wb-group-employee="${esc(u.id)}"><b>${esc(g)}</b><span>${n.open} mở / ${n.total}</span></button>`)
+  .join('');
  return `<div class="card wb-person ${selectedEmp?'selected':''}">
   <div class="wb-person-head">
-   <button class="wb-person-id" data-wb-employee="${u.id}">
-    ${avatarHTML(u)}
-    <span><b>${esc(u.name)}</b><small>${esc(u.title||'Sale Online')}</small></span>
+   <button type="button" class="wb-person-id" data-wb-employee="${esc(u.id)}">
+    <div class="avatar">${initials(String(u.name||'Sale'))}</div>
+    <span><b>${esc(u.name||'Nhân viên')}</b><small>${esc(u.title||'Sale Online')}</small></span>
    </button>
    <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-    ${!u.active?'<span class="pill red">Đã khóa</span>':''}
+    ${u.active===false?'<span class="pill red">Đã khóa</span>':''}
     ${late?`<span class="pill red">${late} quá hạn</span>`:'<span class="pill green">Không quá hạn</span>'}
    </div>
   </div>
   <div class="wb-status-row">
-   <button class="wb-mini ${selectedEmp&&workboardStatus==='unread'?'active redish':''}" data-wb-emp-status="${u.id}|unread"><span>CHƯA ĐỌC</span><b class="${unread?'red':''}">${unread}</b></button>
-   <button class="wb-mini ${selectedEmp&&workboardStatus==='pending'?'active orangeish':''}" data-wb-emp-status="${u.id}|pending"><span>CHƯA XONG</span><b>${pending}</b></button>
-   <button class="wb-mini ${selectedEmp&&workboardStatus==='doing'?'active blueish':''}" data-wb-emp-status="${u.id}|doing"><span>ĐANG LÀM</span><b>${doing}</b></button>
-   <button class="wb-mini ${selectedEmp&&workboardStatus==='done'?'active greenish':''}" data-wb-emp-status="${u.id}|done"><span>HOÀN THÀNH</span><b>${done}</b></button>
+   <button type="button" class="wb-mini ${selectedEmp&&workboardStatus==='unread'?'active redish':''}" data-wb-emp-status="${esc(u.id)}|unread"><span>CHƯA ĐỌC</span><b class="${unread?'red':''}">${unread}</b></button>
+   <button type="button" class="wb-mini ${selectedEmp&&workboardStatus==='pending'?'active orangeish':''}" data-wb-emp-status="${esc(u.id)}|pending"><span>CHƯA XONG</span><b>${pending}</b></button>
+   <button type="button" class="wb-mini ${selectedEmp&&workboardStatus==='doing'?'active blueish':''}" data-wb-emp-status="${esc(u.id)}|doing"><span>ĐANG LÀM</span><b>${doing}</b></button>
+   <button type="button" class="wb-mini ${selectedEmp&&workboardStatus==='done'?'active greenish':''}" data-wb-emp-status="${esc(u.id)}|done"><span>HOÀN THÀNH</span><b>${done}</b></button>
   </div>
   <div class="wb-groups">
    <div class="wb-groups-label">NHÓM VIỆC</div>
-   <div class="wb-group-list">
-    ${Object.entries(groups).sort((a,b)=>b[1].open-a[1].open||b[1].total-a[1].total).map(([g,n])=>`<button class="wb-group ${selectedEmp&&workboardGroup===g?'active':''}" data-wb-group="${encodeURIComponent(g)}" data-wb-group-employee="${u.id}"><b>${esc(g)}</b><span>${n.open} mở / ${n.total}</span></button>`).join('')||'<span class="sub">Chưa có task</span>'}
-   </div>
+   <div class="wb-group-list">${groupButtons||'<span class="sub">Chưa có task</span>'}</div>
   </div>
  </div>`
+}
+function workboardSafeTaskCard(t){
+ try{return taskCard(t)}
+ catch(error){
+  console.error('workboard task card',t,error);
+  return `<div class="card pad"><b>${esc(t?.title||'Task lỗi dữ liệu')}</b><div class="sub">Không hiển thị được đầy đủ task này.</div></div>`
+ }
 }
 function workboardPage(){
- const sales=state.accounts.filter(a=>a.role==='Sale');
- const all=state.tasks;
- const totals={
-  unread:all.filter(t=>!t.read&&t.status!=='done').length,
-  pending:all.filter(t=>t.status!=='done').length,
-  doing:all.filter(t=>t.status==='doing').length,
-  done:all.filter(t=>t.status==='done').length
- };
- const groups=[...new Set(all.map(t=>t.group||'Khác'))].sort((a,b)=>a.localeCompare(b,'vi'));
- const detail=workboardFilteredTasks();
- const statusLabel={unread:'Chưa đọc',pending:'Chưa hoàn thành',doing:'Đang làm',done:'Hoàn thành'}[workboardStatus]||'Tất cả trạng thái';
- const selectedEmployee=state.accounts.find(a=>a.id===filters.employee);
- return head('Theo dõi công việc','Theo dõi toàn bộ trạng thái và nhóm việc của từng nhân viên trên một màn hình')+
- `<div class="wb-kpis">
-  <button class="card wb-kpi ${workboardStatus==='unread'?'active':''}" data-wb-status="unread"><span>CHƯA ĐỌC</span><b class="red">${totals.unread}</b><small>Chưa xác nhận nhận việc</small></button>
-  <button class="card wb-kpi ${workboardStatus==='pending'?'active':''}" data-wb-status="pending"><span>CHƯA HOÀN THÀNH</span><b class="orangeText">${totals.pending}</b><small>Toàn bộ task còn mở</small></button>
-  <button class="card wb-kpi ${workboardStatus==='doing'?'active':''}" data-wb-status="doing"><span>ĐANG LÀM</span><b>${totals.doing}</b><small>Sale đã bắt đầu xử lý</small></button>
-  <button class="card wb-kpi ${workboardStatus==='done'?'active':''}" data-wb-status="done"><span>HOÀN THÀNH</span><b class="green">${totals.done}</b><small>Task đã chốt kết quả</small></button>
- </div>
- <div class="sectionhead wb-section-head"><div><h3>Theo từng nhân viên</h3><small>Bấm số trạng thái hoặc nhóm việc để lọc chi tiết</small></div><button class="btn small" id="wbClearEmployee">Xem toàn team</button></div>
- <div class="wb-people">${sales.map(workboardEmployeeCard).join('')||'<div class="card empty"><b>Chưa có nhân viên Sale</b></div>'}</div>
- <div class="card pad wb-detail-wrap">
-  <div class="sectionhead"><div><h3>Task chi tiết</h3><small>${esc(statusLabel)}${selectedEmployee?' · '+esc(selectedEmployee.name):' · Toàn team'}${workboardGroup?' · '+esc(workboardGroup):''} · ${detail.length} task</small></div></div>
-  <div class="toolbar">
-   <div class="search">⌕<input id="q" value="${esc(filters.q)}" placeholder="Tìm task, mô tả, nhóm việc..."></div>
-   <select id="employeeFilter"><option value="">Tất cả nhân viên</option>${state.accounts.filter(x=>x.role==='Sale').map(x=>`<option value="${x.id}" ${filters.employee===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select>
-   <select id="wbGroupFilter"><option value="">Tất cả nhóm việc</option>${groups.map(g=>`<option value="${esc(g)}" ${workboardGroup===g?'selected':''}>${esc(g)}</option>`).join('')}</select>
-   <select id="priorityFilter"><option value="">Mọi ưu tiên</option>${['Cao','Trung bình','Thấp'].map(x=>`<option ${filters.priority===x?'selected':''}>${x}</option>`).join('')}</select>
-   <button class="btn" id="clearFilter">Xóa lọc</button>
+ try{
+  const sales=workboardSales();
+  const all=workboardTasks();
+  const totals={
+   unread:all.filter(t=>!t?.read&&t?.status!=='done').length,
+   pending:all.filter(t=>t?.status!=='done').length,
+   doing:all.filter(t=>t?.status==='doing').length,
+   done:all.filter(t=>t?.status==='done').length
+  };
+  const groups=[...new Set(all.map(t=>String(t?.group||'Khác')))].sort((a,b)=>a.localeCompare(b,'vi'));
+  const detail=workboardFilteredTasks();
+  const statusLabel={unread:'Chưa đọc',pending:'Chưa hoàn thành',doing:'Đang làm',done:'Hoàn thành'}[workboardStatus]||'Tất cả trạng thái';
+  const selectedEmployee=(Array.isArray(state.accounts)?state.accounts:[]).find(a=>String(a?.id||'')===String(filters?.employee||''));
+  return head('Theo dõi công việc','Theo dõi trạng thái và nhóm việc của từng nhân viên trên một màn hình')+
+  `<div class="wb-kpis">
+   <button type="button" class="card wb-kpi ${workboardStatus==='unread'?'active':''}" data-wb-status="unread"><span>CHƯA ĐỌC</span><b class="red">${totals.unread}</b><small>Chưa xác nhận nhận việc</small></button>
+   <button type="button" class="card wb-kpi ${workboardStatus==='pending'?'active':''}" data-wb-status="pending"><span>CHƯA HOÀN THÀNH</span><b class="orangeText">${totals.pending}</b><small>Toàn bộ task còn mở</small></button>
+   <button type="button" class="card wb-kpi ${workboardStatus==='doing'?'active':''}" data-wb-status="doing"><span>ĐANG LÀM</span><b>${totals.doing}</b><small>Sale đã bắt đầu xử lý</small></button>
+   <button type="button" class="card wb-kpi ${workboardStatus==='done'?'active':''}" data-wb-status="done"><span>HOÀN THÀNH</span><b class="green">${totals.done}</b><small>Task đã chốt kết quả</small></button>
   </div>
-  ${detail.length?bulkBar(detail):''}
-  <div class="tasklist">${detail.map(taskCard).join('')||'<div class="empty"><b>Không có task phù hợp bộ lọc</b>Chọn trạng thái, nhân viên hoặc nhóm việc khác.</div>'}</div>
- </div>`
+  <div class="sectionhead wb-section-head"><div><h3>Theo từng nhân viên</h3><small>Bấm trạng thái hoặc nhóm việc để xem chi tiết</small></div><button type="button" class="btn small" id="wbClearEmployee">Xem toàn team</button></div>
+  <div class="wb-people">${sales.length?sales.map(workboardEmployeeCard).join(''):'<div class="card empty"><b>Chưa có nhân viên Sale</b></div>'}</div>
+  <div class="card pad wb-detail-wrap">
+   <div class="sectionhead"><div><h3>Task chi tiết</h3><small>${esc(statusLabel)}${selectedEmployee?' · '+esc(selectedEmployee.name||'Nhân viên'):' · Toàn team'}${workboardGroup?' · '+esc(workboardGroup):''} · ${detail.length} task</small></div></div>
+   <div class="toolbar">
+    <div class="search">⌕<input id="q" value="${esc(filters?.q||'')}" placeholder="Tìm task, mô tả, nhóm việc..."></div>
+    <select id="employeeFilter"><option value="">Tất cả nhân viên</option>${sales.map(x=>`<option value="${esc(x.id)}" ${String(filters?.employee||'')===String(x.id)?'selected':''}>${esc(x.name||'Nhân viên')}</option>`).join('')}</select>
+    <select id="wbGroupFilter"><option value="">Tất cả nhóm việc</option>${groups.map(g=>`<option value="${esc(g)}" ${workboardGroup===g?'selected':''}>${esc(g)}</option>`).join('')}</select>
+    <select id="priorityFilter"><option value="">Mọi ưu tiên</option>${['Cao','Trung bình','Thấp'].map(x=>`<option ${filters?.priority===x?'selected':''}>${x}</option>`).join('')}</select>
+    <button type="button" class="btn" id="clearFilter">Xóa lọc</button>
+   </div>
+   ${detail.length?bulkBar(detail):''}
+   <div class="tasklist">${detail.length?detail.map(workboardSafeTaskCard).join(''):'<div class="empty"><b>Không có task phù hợp</b>Thử chọn trạng thái, nhân viên hoặc nhóm việc khác.</div>'}</div>
+  </div>`
+ }catch(error){
+  console.error('workboard render failed',error);
+  return head('Theo dõi công việc','Không thể dựng dashboard nâng cao')+
+   `<div class="card pad"><div class="error" style="margin-bottom:10px"><b>Lỗi hiển thị Theo dõi công việc</b><br>${esc(error?.message||error)}</div><button type="button" class="btn" onclick="filters={q:'',employee:'',priority:''};workboardStatus='pending';workboardGroup='';render()">Đặt lại bộ lọc</button></div>`
+ }
 }
+
 function tasksPage(mode){
  const a=filteredTasks(mode),labels={unread:['Chưa đọc','Những task nhân viên chưa xác nhận đã đọc'],pending:['Chưa hoàn thành','Việc chưa làm xong — ưu tiên quá hạn và ưu tiên cao lên trên'],doing:['Đang làm','Công việc đang được nhân viên xử lý'],done:['Đã hoàn thành','Lịch sử các task đã hoàn thành']};
  const [title,desc]=labels[mode];
