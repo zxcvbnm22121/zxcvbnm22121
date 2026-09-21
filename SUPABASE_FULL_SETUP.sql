@@ -648,21 +648,21 @@ create table if not exists public.chat_group_messages (
 
 create or replace function public.is_group_member(
   target_group uuid,
-  target_user uuid default auth.uid()
+  target_user uuid
 )
 returns boolean
 language sql
 stable
 security definer
 set search_path = public
-as $
+as '
   select exists (
     select 1
     from public.chat_group_members gm
     where gm.group_id = target_group
       and gm.user_id = target_user
   );
-$;
+';
 
 revoke all on function public.is_group_member(uuid, uuid) from public;
 grant execute on function public.is_group_member(uuid, uuid) to authenticated;
@@ -809,5 +809,7 @@ alter publication supabase_realtime set table
   public.work_schedules,
   public.leave_requests,
   public.report_entries;
+
+NOTIFY pgrst, 'reload schema';
 
 select 'Seven.AM Supabase backend setup complete — hardened' as result;
