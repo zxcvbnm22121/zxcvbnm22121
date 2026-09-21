@@ -1004,6 +1004,44 @@ body{font-weight:400;-webkit-font-smoothing:antialiased;text-rendering:optimizeL
 .online-pill i{width:7px;height:7px;border-radius:50%;background:#39a979;box-shadow:0 0 0 4px rgba(57,169,121,.08)}
 .sync-note{font-size:9px;color:#8a8285;margin-top:5px}
 
+
+/* ===== LEADER WORKBOARD ===== */
+.wb-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}
+.wb-kpi{padding:15px 16px;text-align:left;cursor:pointer;transition:.2s var(--ease)}
+.wb-kpi:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(18,29,50,.08)}
+.wb-kpi.active{border-color:#9fb0c4;box-shadow:0 0 0 2px rgba(58,83,112,.08),var(--shadow)}
+.wb-kpi span{display:block;font-size:9px;font-weight:900;letter-spacing:.5px;color:#7d8794}
+.wb-kpi b{display:block;font-size:28px;margin:5px 0 2px}
+.wb-kpi small{font-size:10px;color:var(--muted)}
+.wb-section-head{margin-top:2px}
+.wb-people{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:18px}
+.wb-person{padding:14px;transition:.2s var(--ease)}
+.wb-person.selected{border-color:#8ba0b8;box-shadow:0 0 0 2px rgba(71,95,124,.07),var(--shadow)}
+.wb-person-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:11px}
+.wb-person-id{border:0;background:transparent;padding:0;display:flex;align-items:center;gap:9px;text-align:left;cursor:pointer;min-width:0}
+.wb-person-id .avatar{flex:0 0 auto}
+.wb-person-id span{min-width:0}
+.wb-person-id b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wb-person-id small{display:block;font-size:9px;color:var(--muted);margin-top:2px}
+.wb-status-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.wb-mini{border:1px solid #e7e9ed;background:#fafbfc;border-radius:10px;padding:8px 6px;cursor:pointer;text-align:center;transition:.16s}
+.wb-mini:hover{background:#f3f6f9}
+.wb-mini.active{border-color:#9aaec4;background:#f1f5f9}
+.wb-mini span{display:block;font-size:7.5px;color:#89919d;font-weight:900;letter-spacing:.25px;white-space:nowrap}
+.wb-mini b{display:block;font-size:17px;margin-top:3px}
+.wb-mini.redish.active{background:#fff2f4;border-color:#e7bbc2}
+.wb-mini.orangeish.active{background:#fff7ed;border-color:#e7cfaa}
+.wb-mini.blueish.active{background:#eef4ff;border-color:#cbd9ee}
+.wb-mini.greenish.active{background:#eef8f3;border-color:#c9e2d6}
+.wb-groups{margin-top:11px;padding-top:10px;border-top:1px solid #eef0f2}
+.wb-groups-label{font-size:8px;color:#9299a2;font-weight:900;letter-spacing:.45px;margin-bottom:6px}
+.wb-group-list{display:flex;gap:6px;flex-wrap:wrap}
+.wb-group{border:1px solid #e5e8ec;background:white;border-radius:9px;padding:6px 8px;display:flex;gap:6px;align-items:center;cursor:pointer}
+.wb-group:hover,.wb-group.active{border-color:#9fb0c4;background:#f4f7fa}
+.wb-group b{font-size:9px}.wb-group span{font-size:8px;color:#8a919b}
+.wb-detail-wrap{margin-bottom:18px}
+@media(max-width:1050px){.wb-people{grid-template-columns:1fr}.wb-kpis{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.wb-kpis{grid-template-columns:1fr 1fr}.wb-status-row{grid-template-columns:1fr 1fr}.wb-kpi b{font-size:23px}}
 </style>
 </head>
 <body>
