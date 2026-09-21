@@ -1,11 +1,68 @@
--- Seven.AM SOL - Supabase full backend setup
--- Safe to re-run. Run in Supabase SQL Editor as postgres.
+-- ============================================================
+-- SEVEN.AM SOL — COMPLETE SUPABASE BACKEND SETUP
+-- Version: production hardening
+-- Safe to re-run on the Seven.AM project.
+-- Run in Supabase SQL Editor as the project owner/postgres role.
+-- ============================================================
 
 create extension if not exists pgcrypto;
 
--- =========================================================
--- Helper: Leader role
--- =========================================================
+-- ============================================================
+-- 1. CORE PROFILES
+-- ============================================================
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  full_name text not null default '',
+  role text not null default 'sale' check (role in ('leader','sale')),
+  title text,
+  phone text,
+  zalo text,
+  email text,
+  avatar_url text,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.profiles enable row level security;
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, full_name, email, role, active)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data ->> 'full_name', ''),
+    new.email,
+    'sale',
+    true
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+after insert on auth.users
+for each row execute function public.handle_new_user();
+
+-- Backfill profiles for Auth users created before the trigger existed.
+insert into public.profiles (id, full_name, email, role, active)
+select
+  u.id,
+  coalesce(u.raw_user_meta_data ->> 'full_name', ''),
+  u.email,
+  'sale',
+  true
+from auth.users u
+on conflict (id) do nothing;
+
+-- Helper used by RLS and guard triggers.
 create or replace function public.is_leader()
 returns boolean
 language sql
@@ -14,31 +71,205 @@ security definer
 set search_path = public
 as $$
   select exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role = 'leader' and active = true
+    select 1
+    from public.profiles
+    where id = auth.uid()
+      and role = 'leader'
+      and active = true
   );
 $$;
 
+revoke all on function public.is_leader() from public;
 grant execute on function public.is_leader() to authenticated;
 
--- =========================================================
--- Existing core tables: Data API grants
--- =========================================================
 grant usage on schema public to authenticated;
-grant select, update on public.profiles to authenticated;
-grant select, insert, update, delete on public.tasks to authenticated;
-grant select, insert on public.task_history to authenticated;
-grant usage, select on sequence public.task_history_id_seq to authenticated;
+grant select on public.profiles to authenticated;
 
--- Leader delete task
+-- Do not allow browser clients to change their role/active/id.
+revoke update on public.profiles from authenticated;
+grant update (full_name, title, phone, zalo, email, avatar_url, updated_at)
+on public.profiles to authenticated;
+
+drop policy if exists "Authenticated users can view profiles" on public.profiles;
+create policy "Authenticated users can view profiles"
+on public.profiles for select to authenticated
+using (true);
+
+drop policy if exists "Users update own profile" on public.profiles;
+create policy "Users update own profile"
+on public.profiles for update to authenticated
+using (id = auth.uid())
+with check (id = auth.uid());
+
+-- ============================================================
+-- 2. TASKS
+-- ============================================================
+create table if not exists public.tasks (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  description text,
+  task_group text,
+  assigned_to uuid not null references public.profiles(id),
+  created_by uuid not null references public.profiles(id),
+  priority text not null default 'medium' check (priority in ('high','medium','low')),
+  status text not null default 'todo' check (status in ('todo','doing','done')),
+  deadline timestamptz,
+  is_read boolean not null default false,
+  read_at timestamptz,
+  checklist jsonb not null default '{"items":[],"checked":[]}'::jsonb,
+  result text,
+  started_at timestamptz,
+  completed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.tasks add column if not exists task_group text;
+alter table public.tasks enable row level security;
+grant select, insert, update, delete on public.tasks to authenticated;
+
+drop policy if exists "Users view allowed tasks" on public.tasks;
+create policy "Users view allowed tasks"
+on public.tasks for select to authenticated
+using (
+  assigned_to = auth.uid()
+  or public.is_leader()
+);
+
+drop policy if exists "Leader creates tasks" on public.tasks;
+create policy "Leader creates tasks"
+on public.tasks for insert to authenticated
+with check (
+  public.is_leader()
+  and created_by = auth.uid()
+  and exists (
+    select 1 from public.profiles p
+    where p.id = assigned_to and p.role = 'sale' and p.active = true
+  )
+);
+
+drop policy if exists "Sale updates assigned tasks" on public.tasks;
+create policy "Sale updates assigned tasks"
+on public.tasks for update to authenticated
+using (assigned_to = auth.uid())
+with check (assigned_to = auth.uid());
+
+drop policy if exists "Leader updates all tasks" on public.tasks;
+create policy "Leader updates all tasks"
+on public.tasks for update to authenticated
+using (public.is_leader())
+with check (public.is_leader());
+
 drop policy if exists "Leader deletes tasks" on public.tasks;
 create policy "Leader deletes tasks"
 on public.tasks for delete to authenticated
 using (public.is_leader());
 
--- =========================================================
--- Announcements / programs
--- =========================================================
+-- A Sale may update progress fields only. Protected task-definition fields
+-- cannot be modified even by calling the REST API manually.
+create or replace function public.guard_task_update()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  item_count integer;
+  checked_count integer;
+begin
+  new.updated_at := now();
+
+  if auth.uid() is null or public.is_leader() then
+    return new;
+  end if;
+
+  if old.assigned_to <> auth.uid() then
+    raise exception 'Not allowed to update this task';
+  end if;
+
+  if new.title is distinct from old.title
+     or new.description is distinct from old.description
+     or new.task_group is distinct from old.task_group
+     or new.assigned_to is distinct from old.assigned_to
+     or new.created_by is distinct from old.created_by
+     or new.priority is distinct from old.priority
+     or new.deadline is distinct from old.deadline
+     or new.created_at is distinct from old.created_at then
+    raise exception 'Sale can only update task progress';
+  end if;
+
+  if new.status = 'done' then
+    if coalesce(btrim(new.result), '') = '' then
+      raise exception 'A completed task requires a result';
+    end if;
+
+    item_count := jsonb_array_length(coalesce(new.checklist -> 'items', '[]'::jsonb));
+    checked_count := jsonb_array_length(coalesce(new.checklist -> 'checked', '[]'::jsonb));
+
+    if checked_count < item_count then
+      raise exception 'All checklist items must be completed';
+    end if;
+
+    if new.completed_at is null then
+      new.completed_at := now();
+    end if;
+  end if;
+
+  if new.is_read = true and old.is_read = false and new.read_at is null then
+    new.read_at := now();
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists guard_task_update_trigger on public.tasks;
+create trigger guard_task_update_trigger
+before update on public.tasks
+for each row execute function public.guard_task_update();
+
+-- ============================================================
+-- 3. TASK HISTORY
+-- ============================================================
+create table if not exists public.task_history (
+  id bigint generated always as identity primary key,
+  task_id uuid not null references public.tasks(id) on delete cascade,
+  user_id uuid references public.profiles(id),
+  action text not null,
+  detail text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.task_history enable row level security;
+grant select, insert on public.task_history to authenticated;
+grant usage, select on sequence public.task_history_id_seq to authenticated;
+
+drop policy if exists "Users view task history" on public.task_history;
+create policy "Users view task history"
+on public.task_history for select to authenticated
+using (
+  exists (
+    select 1 from public.tasks t
+    where t.id = task_id
+      and (t.assigned_to = auth.uid() or public.is_leader())
+  )
+);
+
+drop policy if exists "Users create task history" on public.task_history;
+create policy "Users create task history"
+on public.task_history for insert to authenticated
+with check (
+  user_id = auth.uid()
+  and exists (
+    select 1 from public.tasks t
+    where t.id = task_id
+      and (t.assigned_to = auth.uid() or public.is_leader())
+  )
+);
+
+-- ============================================================
+-- 4. ANNOUNCEMENTS / PROGRAMS
+-- ============================================================
 create table if not exists public.announcements (
   id uuid primary key default gen_random_uuid(),
   title text not null,
@@ -49,14 +280,26 @@ create table if not exists public.announcements (
   active boolean not null default true,
   created_by uuid references public.profiles(id),
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint announcement_date_order check (
+    end_date is null or start_date is null or end_date >= start_date
+  )
 );
+
 alter table public.announcements enable row level security;
 grant select, insert, update, delete on public.announcements to authenticated;
 
 drop policy if exists "Authenticated view announcements" on public.announcements;
 create policy "Authenticated view announcements"
-on public.announcements for select to authenticated using (true);
+on public.announcements for select to authenticated
+using (
+  public.is_leader()
+  or (
+    active = true
+    and (start_date is null or start_date <= current_date)
+    and (end_date is null or end_date >= current_date)
+  )
+);
 
 drop policy if exists "Leader creates announcements" on public.announcements;
 create policy "Leader creates announcements"
@@ -70,11 +313,12 @@ using (public.is_leader()) with check (public.is_leader());
 
 drop policy if exists "Leader deletes announcements" on public.announcements;
 create policy "Leader deletes announcements"
-on public.announcements for delete to authenticated using (public.is_leader());
+on public.announcements for delete to authenticated
+using (public.is_leader());
 
--- =========================================================
--- Work schedules
--- =========================================================
+-- ============================================================
+-- 5. WORK SCHEDULES
+-- ============================================================
 create table if not exists public.work_schedules (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -89,8 +333,10 @@ create table if not exists public.work_schedules (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
 create unique index if not exists work_schedules_user_date_uidx
 on public.work_schedules(user_id, work_date);
+
 alter table public.work_schedules enable row level security;
 grant select, insert, update, delete on public.work_schedules to authenticated;
 
@@ -115,13 +361,40 @@ create policy "Leader deletes schedules"
 on public.work_schedules for delete to authenticated
 using (public.is_leader());
 
--- =========================================================
--- Leave / late requests
--- =========================================================
+create or replace function public.guard_work_schedule()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  new.updated_at := now();
+
+  if auth.uid() is not null and not public.is_leader() then
+    if new.user_id <> auth.uid() then
+      raise exception 'Cannot register a schedule for another user';
+    end if;
+    new.status := 'Chờ duyệt';
+    new.reviewed_at := null;
+    new.reviewed_by := null;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists guard_work_schedule_trigger on public.work_schedules;
+create trigger guard_work_schedule_trigger
+before insert or update on public.work_schedules
+for each row execute function public.guard_work_schedule();
+
+-- ============================================================
+-- 6. LEAVE / LATE REQUESTS
+-- ============================================================
 create table if not exists public.leave_requests (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
-  type text not null,
+  type text not null check (type in ('Nghỉ phép','Đến muộn')),
   date_from date not null,
   date_to date,
   session text,
@@ -134,6 +407,7 @@ create table if not exists public.leave_requests (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
 alter table public.leave_requests enable row level security;
 grant select, insert, update, delete on public.leave_requests to authenticated;
 
@@ -145,22 +419,38 @@ using (user_id = auth.uid() or public.is_leader());
 drop policy if exists "Users create own leave requests" on public.leave_requests;
 create policy "Users create own leave requests"
 on public.leave_requests for insert to authenticated
-with check (user_id = auth.uid());
+with check (
+  user_id = auth.uid()
+  and status = 'Chờ duyệt'
+  and reviewed_at is null
+  and reviewed_by is null
+);
 
 drop policy if exists "Users update own pending leave or leader" on public.leave_requests;
 create policy "Users update own pending leave or leader"
 on public.leave_requests for update to authenticated
-using (user_id = auth.uid() or public.is_leader())
-with check (user_id = auth.uid() or public.is_leader());
+using (
+  public.is_leader()
+  or (user_id = auth.uid() and status = 'Chờ duyệt')
+)
+with check (
+  public.is_leader()
+  or (
+    user_id = auth.uid()
+    and status = 'Chờ duyệt'
+    and reviewed_at is null
+    and reviewed_by is null
+  )
+);
 
 drop policy if exists "Leader deletes leave requests" on public.leave_requests;
 create policy "Leader deletes leave requests"
 on public.leave_requests for delete to authenticated
 using (public.is_leader());
 
--- =========================================================
--- Reports: Ads / Live / Zalo / Web in one table
--- =========================================================
+-- ============================================================
+-- 7. REPORTS — ADS / LIVE / ZALO / WEB
+-- ============================================================
 create table if not exists public.report_entries (
   id uuid primary key default gen_random_uuid(),
   channel text not null check (channel in ('ads','live','zalo','web')),
@@ -178,8 +468,67 @@ create table if not exists public.report_entries (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
 alter table public.report_entries enable row level security;
 grant select, insert, update, delete on public.report_entries to authenticated;
+
+-- Prevent negative operational numbers.
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'report_nonnegative_values') then
+    alter table public.report_entries
+    add constraint report_nonnegative_values check (
+      data_count >= 0 and orders >= 0 and sales >= 0
+      and products >= 0 and posts >= 0 and interested >= 0
+    );
+  end if;
+end $$;
+
+-- One Live row per date; other channels one row per employee/date.
+create unique index if not exists report_live_date_uidx
+on public.report_entries(report_date)
+where channel = 'live';
+
+create unique index if not exists report_employee_date_uidx
+on public.report_entries(
+  channel,
+  report_date,
+  coalesce(employee_id, '00000000-0000-0000-0000-000000000000'::uuid)
+)
+where channel in ('ads','zalo','web');
+
+create or replace function public.normalize_report_entry()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  new.updated_at := now();
+
+  if new.employee_id is not null then
+    select full_name into new.employee_name
+    from public.profiles
+    where id = new.employee_id;
+  end if;
+
+  if auth.uid() is not null and not public.is_leader() then
+    new.entered_by := auth.uid();
+    new.employee_id := auth.uid();
+
+    select full_name into new.employee_name
+    from public.profiles
+    where id = auth.uid();
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists normalize_report_entry_trigger on public.report_entries;
+create trigger normalize_report_entry_trigger
+before insert or update on public.report_entries
+for each row execute function public.normalize_report_entry();
 
 drop policy if exists "Users view reports" on public.report_entries;
 create policy "Users view reports"
@@ -195,7 +544,7 @@ create policy "Users insert reports"
 on public.report_entries for insert to authenticated
 with check (
   public.is_leader()
-  or entered_by = auth.uid()
+  or (entered_by = auth.uid() and employee_id = auth.uid())
 );
 
 drop policy if exists "Users update reports" on public.report_entries;
@@ -203,11 +552,11 @@ create policy "Users update reports"
 on public.report_entries for update to authenticated
 using (
   public.is_leader()
-  or entered_by = auth.uid()
+  or (entered_by = auth.uid() and employee_id = auth.uid())
 )
 with check (
   public.is_leader()
-  or entered_by = auth.uid()
+  or (entered_by = auth.uid() and employee_id = auth.uid())
 );
 
 drop policy if exists "Leader deletes reports" on public.report_entries;
@@ -215,9 +564,9 @@ create policy "Leader deletes reports"
 on public.report_entries for delete to authenticated
 using (public.is_leader());
 
--- =========================================================
--- Chat messages
--- =========================================================
+-- ============================================================
+-- 8. CHAT MESSAGES
+-- ============================================================
 create table if not exists public.messages (
   id bigint generated always as identity primary key,
   sender_id uuid not null references public.profiles(id) on delete cascade,
@@ -225,10 +574,16 @@ create table if not exists public.messages (
   content text,
   image_path text,
   read_at timestamptz,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint message_has_content check (
+    nullif(btrim(content), '') is not null or image_path is not null
+  )
 );
+
 alter table public.messages enable row level security;
-grant select, insert, update on public.messages to authenticated;
+grant select, insert on public.messages to authenticated;
+revoke update on public.messages from authenticated;
+grant update (read_at) on public.messages to authenticated;
 grant usage, select on sequence public.messages_id_seq to authenticated;
 
 drop policy if exists "Users view own conversations" on public.messages;
@@ -239,7 +594,14 @@ using (sender_id = auth.uid() or receiver_id = auth.uid());
 drop policy if exists "Users send messages" on public.messages;
 create policy "Users send messages"
 on public.messages for insert to authenticated
-with check (sender_id = auth.uid() and receiver_id <> auth.uid());
+with check (
+  sender_id = auth.uid()
+  and receiver_id <> auth.uid()
+  and (
+    image_path is null
+    or (storage.foldername(image_path))[1] = auth.uid()::text
+  )
+);
 
 drop policy if exists "Receiver marks messages read" on public.messages;
 create policy "Receiver marks messages read"
@@ -247,9 +609,9 @@ on public.messages for update to authenticated
 using (receiver_id = auth.uid())
 with check (receiver_id = auth.uid());
 
--- =========================================================
--- Private chat image storage
--- =========================================================
+-- ============================================================
+-- 9. PRIVATE CHAT IMAGE STORAGE
+-- ============================================================
 insert into storage.buckets (id, name, public)
 values ('chat-images','chat-images',false)
 on conflict (id) do update set public = false;
@@ -257,7 +619,15 @@ on conflict (id) do update set public = false;
 drop policy if exists "Authenticated users view chat images" on storage.objects;
 create policy "Authenticated users view chat images"
 on storage.objects for select to authenticated
-using (bucket_id = 'chat-images');
+using (
+  bucket_id = 'chat-images'
+  and exists (
+    select 1
+    from public.messages m
+    where m.image_path = name
+      and (m.sender_id = auth.uid() or m.receiver_id = auth.uid())
+  )
+);
 
 drop policy if exists "Users upload chat images" on storage.objects;
 create policy "Users upload chat images"
@@ -275,9 +645,9 @@ using (
   and (storage.foldername(name))[1] = auth.uid()::text
 );
 
--- =========================================================
--- Realtime publication (ignore if already added)
--- =========================================================
+-- ============================================================
+-- 10. REALTIME
+-- ============================================================
 do $$
 begin
   begin alter publication supabase_realtime add table public.tasks; exception when duplicate_object then null; end;
@@ -289,4 +659,4 @@ begin
   begin alter publication supabase_realtime add table public.report_entries; exception when duplicate_object then null; end;
 end $$;
 
-select 'Seven.AM Supabase backend setup complete' as result;
+select 'Seven.AM Supabase backend setup complete — hardened' as result;
