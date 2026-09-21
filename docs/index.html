@@ -1030,6 +1030,7 @@ body{font-weight:400;-webkit-font-smoothing:antialiased;text-rendering:optimizeL
         <div class="field"><label>EMAIL</label><input id="username" type="email" autocomplete="username" placeholder="email@sevenam.vn"></div>
         <div class="field"><label>MẬT KHẨU</label><input id="password" type="password" autocomplete="current-password" placeholder="Nhập mật khẩu"></div>
         <button class="primary loginbtn">Đăng nhập vào Seven.AM Task</button>
+        <button type="button" class="btn" id="forgotPasswordBtn" style="width:100%;margin-top:8px">Quên mật khẩu?</button>
         <div class="error" id="loginError"></div>
       </form>
       <div class="demo hidden">
@@ -1188,7 +1189,10 @@ function subscribeTaskChanges(){
 }
 async function bootSupabase(){
  try{
+  const u=new URL(window.location.href);
+  const recoveryHint=u.hash.includes('type=recovery')||u.searchParams.get('type')==='recovery';
   const {data:{session:sess}}=await supabaseClient.auth.getSession();
+  if(recoveryHint){showLogin();setTimeout(openRecoveryModal,300);return}
   if(sess?.user)await activateRemoteUser(sess.user);else showLogin()
  }catch(err){console.error(err);showLogin();document.getElementById('loginError').textContent='Không kết nối được Supabase. Kiểm tra mạng và cấu hình project.'}
 }
@@ -1932,9 +1936,30 @@ function openModal(title,body,buttons=[]){
 }
 function closeModal(){document.getElementById('modalBack').classList.remove('open')}
 
+const APP_URL='https://zxcvbnm22121.github.io/zxcvbnm22121/';
+function openRecoveryModal(){
+ showLogin();
+ openModal('Đặt mật khẩu mới',`<div class="taskdesc" style="margin-bottom:14px">Link khôi phục đã được xác nhận. Hãy đặt mật khẩu mới cho tài khoản.</div><div class="field"><label>MẬT KHẨU MỚI</label><input id="recoveryPass1" type="password" minlength="8" placeholder="Tối thiểu 8 ký tự"></div><div class="field"><label>NHẬP LẠI MẬT KHẨU</label><input id="recoveryPass2" type="password" minlength="8" placeholder="Nhập lại mật khẩu"></div><div class="error" id="recoveryError"></div>`,[{label:'Cập nhật mật khẩu',primary:true,action:async()=>{
+   const p1=document.getElementById('recoveryPass1').value,p2=document.getElementById('recoveryPass2').value,err=document.getElementById('recoveryError');
+   if(p1.length<8){err.textContent='Mật khẩu cần ít nhất 8 ký tự';return}
+   if(p1!==p2){err.textContent='Hai mật khẩu chưa giống nhau';return}
+   const {data,error}=await supabaseClient.auth.updateUser({password:p1});
+   if(error){err.textContent='Supabase: '+error.message;return}
+   closeModal();showToast('Đã đổi mật khẩu. Bạn có thể đăng nhập bằng mật khẩu mới.');
+   await supabaseClient.auth.signOut();session=null;showLogin();document.getElementById('password').value=''
+ }}])
+}
+async function sendRecoveryEmail(){
+ const email=document.getElementById('username').value.trim().toLowerCase(),err=document.getElementById('loginError');
+ if(!email){err.textContent='Nhập email trước rồi bấm Quên mật khẩu';return}
+ err.textContent='Đang gửi link khôi phục...';
+ const {error}=await supabaseClient.auth.resetPasswordForEmail(email,{redirectTo:APP_URL});
+ err.textContent=error?'Supabase: '+error.message:'Đã gửi link khôi phục. Kiểm tra email và bấm link.';
+}
 function showLogin(){document.getElementById('loginScreen').classList.remove('hidden');document.getElementById('app').classList.add('hidden')}
 function showApp(){document.getElementById('loginScreen').classList.add('hidden');document.getElementById('app').classList.remove('hidden')}
 document.querySelectorAll('[data-role]').forEach(b=>b.onclick=()=>{loginRole=b.dataset.role;document.querySelectorAll('[data-role]').forEach(x=>x.classList.toggle('active',x===b));document.getElementById('loginError').textContent=''})
+document.getElementById('forgotPasswordBtn').onclick=sendRecoveryEmail
 document.getElementById('loginForm').onsubmit=async e=>{
  e.preventDefault();
  const email=document.getElementById('username').value.trim().toLowerCase(),password=document.getElementById('password').value,err=document.getElementById('loginError');
@@ -1953,7 +1978,10 @@ document.getElementById('imageLightbox').onclick=e=>{if(e.target.id==='imageLigh
 document.addEventListener('click',e=>{const ep=document.getElementById('emojiPicker'),eb=document.getElementById('emojiBtn');if(ep&&eb&&!ep.contains(e.target)&&!eb.contains(e.target))ep.classList.remove('open')})
 window.addEventListener('storage',e=>{if(e.key===KEY){state=load();if(me())render()}})
 setInterval(async()=>{if(me()){try{await syncRemoteTasks(true);render()}catch(e){console.warn('poll sync',e)}}},12000)
-supabaseClient.auth.onAuthStateChange((event,sess)=>{if(event==='SIGNED_OUT'){session=null;showLogin()}})
+supabaseClient.auth.onAuthStateChange((event,sess)=>{
+ if(event==='PASSWORD_RECOVERY'){setTimeout(openRecoveryModal,0);return}
+ if(event==='SIGNED_OUT'){session=null;showLogin()}
+})
 bootSupabase()
 </script>
 </body>
