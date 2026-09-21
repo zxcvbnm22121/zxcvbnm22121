@@ -1363,14 +1363,6 @@ function dateRange(from,to){
  for(let d=new Date(a);d<=b;d.setDate(d.getDate()+1))out.push(isoDate(d));
  return out
 }
-function syncApprovedLeaveToSchedule(req){
- if(req.type!=='Nghỉ phép')return;
- dateRange(req.dateFrom,req.dateTo).forEach(ds=>{
-  let sc=state.schedules.find(x=>x.userId===req.userId&&x.date===ds);
-  if(!sc){sc={id:uid('sc'),userId:req.userId,employee:req.employee,date:ds,createdAt:new Date().toISOString()};state.schedules.push(sc)}
-  sc.shift='Nghỉ';sc.start='';sc.end='';sc.note=`Nghỉ phép đã duyệt${req.session&&req.session!=='Cả ngày'?' · '+req.session:''}: ${req.reason||''}`;sc.status='Đã duyệt';sc.updatedAt=new Date().toISOString();sc.reviewedAt=new Date().toISOString();sc.reviewedBy=me().name
- })
-}
 function schedulePendingCount(){
  if(isLeader())return state.schedules.filter(x=>x.status==='Chờ duyệt').length;
  return state.schedules.filter(x=>x.userId===me().id&&x.status==='Chờ duyệt').length
@@ -1388,12 +1380,6 @@ function visibleReportRecords(type){
  return a.sort((a,b)=>a.date.localeCompare(b.date))
 }
 function sumBy(a,key){return a.reduce((s,x)=>s+Number(x[key]||0),0)}
-function upsertReport(type,obj){
- const list=state.reports[type],i=list.findIndex(x=>x.id===obj.id);
- if(i>=0)list[i]=obj;else list.push(obj);save()
-}
-
-
 function navItems(){
  const c=totalCounts();
  return isLeader()?[
@@ -1913,7 +1899,7 @@ function bindPage(){
 
  const aa=document.getElementById('addAnnouncement');if(aa)aa.onclick=()=>openAnnouncement()
  document.querySelectorAll('[data-edit-announcement]').forEach(b=>b.onclick=()=>openAnnouncement(state.announcements.find(x=>x.id===b.dataset.editAnnouncement)||{}))
- document.querySelectorAll('[data-delete-announcement]').forEach(b=>b.onclick=()=>{const x=state.announcements.find(a=>a.id===b.dataset.deleteAnnouncement);if(!x)return;openModal('Xóa thông báo',`<div class="taskdesc">Xóa <b>${esc(x.title)}</b>? Nội dung sẽ không còn hiển thị cho Sale.</div>`,[{label:'Xóa',danger:true,action:()=>{state.announcements=state.announcements.filter(a=>a.id!==x.id);save();closeModal();render();showToast('Đã xóa thông báo')}}])})
+ document.querySelectorAll('[data-delete-announcement]').forEach(b=>b.onclick=()=>{const x=state.announcements.find(a=>a.id===b.dataset.deleteAnnouncement);if(!x)return;openModal('Xóa thông báo',`<div class="taskdesc">Xóa <b>${esc(x.title)}</b>? Nội dung sẽ không còn hiển thị cho Sale.</div>`,[{label:'Xóa',danger:true,action:async()=>{const {error}=await supabaseClient.from('announcements').delete().eq('id',x.id);if(error)return showToast('Không xóa được: '+error.message);await syncRemoteModules(true);closeModal();render();showToast('Đã xóa thông báo')}}])})
  document.querySelectorAll('[data-new-request]').forEach(b=>b.onclick=()=>openRequestForm(b.dataset.newRequest))
  document.querySelectorAll('[data-edit-request]').forEach(b=>b.onclick=()=>openRequestForm(null,b.dataset.editRequest))
  document.querySelectorAll('[data-review-request]').forEach(b=>b.onclick=()=>reviewRequest(b.dataset.reviewRequest))
