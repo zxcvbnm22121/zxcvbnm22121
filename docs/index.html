@@ -1715,22 +1715,47 @@ function employeesPage(){
 }
 
 function chatPage(){
- const users=contactUsers().filter(a=>!chatSearch||(a.name+' '+(a.title||'')+' '+(a.phone||'')+' '+(a.zalo||'')).toLowerCase().includes(chatSearch.toLowerCase()));
- if(!activeChatId&&users.length)activeChatId=users[0].id;
- let active=state.accounts.find(a=>a.id===activeChatId&&a.active&&a.id!==me().id);
- if(!active&&users.length){active=users[0];activeChatId=active.id}
- if(active&&unreadFrom(active.id)){setTimeout(()=>markConversationRead(active.id),0)}
- const msgs=active?conversation(me().id,active.id):[];
- return head('Tin nhắn','Chat online giữa các tài khoản · chữ, định dạng, ảnh, chưa đọc và đã đọc được đồng bộ qua Supabase.')+
+ const q=chatSearch.toLowerCase();
+ const users=contactUsers().filter(a=>!q||(a.name+' '+(a.title||'')+' '+(a.phone||'')+' '+(a.zalo||'')).toLowerCase().includes(q));
+ const groups=(state.chatGroups||[]).filter(g=>!q||(g.name+' '+groupMembers(g.id).map(x=>x.name).join(' ')).toLowerCase().includes(q));
+ const validGroup=isGroupChatId(activeChatId)&&groups.some(g=>'group:'+g.id===activeChatId);
+ const validUser=!isGroupChatId(activeChatId)&&users.some(u=>u.id===activeChatId);
+ if(!validGroup&&!validUser){
+  if(groups.length)activeChatId='group:'+groups[0].id;
+  else if(users.length)activeChatId=users[0].id;
+  else activeChatId=null
+ }
+ const gid=activeGroupId(),group=gid?groupById(gid):null;
+ const active=!gid?state.accounts.find(a=>a.id===activeChatId&&a.active&&a.id!==me().id):null;
+ if(group&&groupUnread(group.id))setTimeout(()=>markGroupRead(group.id),0);
+ if(active&&unreadFrom(active.id))setTimeout(()=>markConversationRead(active.id),0);
+ const msgs=group?groupConversation(group.id):(active?conversation(me().id,active.id):[]);
+ const groupMemberList=group?groupMembers(group.id):[];
+ return head('Tin nhắn','Chat cá nhân và nhóm được đồng bộ qua Supabase; ảnh, định dạng và trạng thái chưa đọc được giữ riêng cho từng cuộc trò chuyện.',isLeader()?'<button class="primary" id="createChatGroup">+ Tạo nhóm chat</button>':'')+
  `<div class="card chat-shell">
    <aside class="chat-list">
-    <div class="chat-list-head"><div class="chat-search">⌕<input id="chatSearch" value="${esc(chatSearch)}" placeholder="Tìm nhân viên..."></div></div>
-    <div class="contact-list">${users.map(u=>{const last=lastMessageWith(u.id),un=unreadFrom(u.id);return`<button class="contact ${active?.id===u.id?'active':''}" data-chat-user="${u.id}">${avatarHTML(u)}<div style="min-width:0"><div class="contact-name">${esc(u.name)} ${un?'<span class="unread-dot"></span>':''}</div><div class="contact-preview">${last?esc((last.from===me().id?'Bạn: ':'')+(last.text|| (last.image?'[Ảnh]':''))):esc(u.title||u.role)}</div></div><div class="contact-meta">${last?`<span class="contact-time">${new Date(last.createdAt).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})}</span>`:''}${un?`<span class="msg-badge">${un}</span>`:''}</div></button>`}).join('')||'<div class="empty">Không tìm thấy nhân viên</div>'}</div>
+    <div class="chat-list-head"><div class="chat-search">⌕<input id="chatSearch" value="${esc(chatSearch)}" placeholder="Tìm người hoặc nhóm..."></div></div>
+    <div class="contact-list">
+     ${groups.length?'<div class="navlabel" style="padding:10px 12px 4px">NHÓM CHAT</div>':''}
+     ${groups.map(g=>{const last=lastGroupMessage(g.id),un=groupUnread(g.id),sender=last?state.accounts.find(a=>a.id===last.senderId):null;return`<button class="contact ${activeChatId==='group:'+g.id?'active':''}" data-chat-group="${g.id}"><div class="avatar">👥</div><div style="min-width:0"><div class="contact-name">${esc(g.name)} ${un?'<span class="unread-dot"></span>':''}</div><div class="contact-preview">${last?esc(((last.senderId===me().id?'Bạn':(sender?.name||'Thành viên'))+': ')+(last.text||(last.image?'[Ảnh]':''))):esc(groupMembers(g.id).map(x=>x.name).join(', '))}</div></div><div class="contact-meta">${last?`<span class="contact-time">${new Date(last.createdAt).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})}</span>`:''}${un?`<span class="msg-badge">${un}</span>`:''}</div></button>`}).join('')}
+     ${users.length?'<div class="navlabel" style="padding:12px 12px 4px">CÁ NHÂN</div>':''}
+     ${users.map(u=>{const last=lastMessageWith(u.id),un=unreadFrom(u.id);return`<button class="contact ${active?.id===u.id?'active':''}" data-chat-user="${u.id}">${avatarHTML(u)}<div style="min-width:0"><div class="contact-name">${esc(u.name)} ${un?'<span class="unread-dot"></span>':''}</div><div class="contact-preview">${last?esc((last.from===me().id?'Bạn: ':'')+(last.text||(last.image?'[Ảnh]':''))):esc(u.title||u.role)}</div></div><div class="contact-meta">${last?`<span class="contact-time">${new Date(last.createdAt).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})}</span>`:''}${un?`<span class="msg-badge">${un}</span>`:''}</div></button>`}).join('')}
+     ${!groups.length&&!users.length?'<div class="empty">Không tìm thấy cuộc trò chuyện</div>':''}
+    </div>
    </aside>
-   <section class="chat-main">${active?`
+   <section class="chat-main">${group?`
+    <div class="chat-head"><div class="avatar">👥</div><div class="chat-head-info"><b>${esc(group.name)}</b><span>${groupMemberList.length} thành viên · ${esc(groupMemberList.map(x=>x.name).join(', '))}</span></div><div class="chat-contact-actions">${isLeader()?`<button class="btn small" data-edit-chat-group="${group.id}">Quản lý nhóm</button>`:''}</div></div>
+    <div class="messages" id="messages">${msgs.map(m=>{const sender=state.accounts.find(a=>a.id===m.senderId);return`<div class="message-row ${m.senderId===me().id?'mine':''}"><div class="bubble">${m.senderId!==me().id?`<div class="sub" style="font-weight:800;margin-bottom:4px">${esc(sender?.name||'Thành viên')}</div>`:''}${m.text?`<div class="bubble-text rich-text">${formatMessageText(m.text)}</div>`:''}${m.image?`<div class="msg-image-wrap"><img class="msg-image" src="${m.image}" data-full-image="${m.image}" alt="Ảnh trong nhóm"></div>`:''}<div class="bubble-time">${new Date(m.createdAt).toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div></div></div>`}).join('')||'<div class="empty">Chưa có tin nhắn trong nhóm.</div>'}</div>
+    ${chatComposer(activeChatId)}
+   `:active?`
     <div class="chat-head">${avatarHTML(active)}<div class="chat-head-info"><b>${esc(active.name)}</b><span>${esc(active.title||active.role)}</span></div><div class="chat-contact-actions">${active.phone?`<span class="contact-link">☎ ${esc(active.phone)}</span>`:''}${active.zalo?`<span class="contact-link">Zalo: ${esc(active.zalo)}</span>`:''}<button class="btn small" data-view-profile="${active.id}">Tiểu sử</button></div></div>
     <div class="messages" id="messages">${msgs.map(m=>`<div class="message-row ${m.from===me().id?'mine':''}"><div class="bubble">${m.text?`<div class="bubble-text rich-text">${formatMessageText(m.text)}</div>`:''}${m.image?`<div class="msg-image-wrap"><img class="msg-image" src="${m.image}" data-full-image="${m.image}" alt="Ảnh trong tin nhắn"></div>`:''}<div class="bubble-time">${new Date(m.createdAt).toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}${m.from===me().id?` · <span class="chat-status-icon ${m.readAt?'read':''}">${m.readAt?'Đã đọc':'Đã gửi'}</span>`:''}</div></div></div>`).join('')||'<div class="empty">Chưa có tin nhắn. Bắt đầu cuộc trò chuyện.</div>'}</div>
-    <div class="chat-compose-wrap">
+    ${chatComposer(activeChatId)}
+   `:`<div class="chat-empty"><div><b>Chọn một cuộc trò chuyện</b><br><span class="sub">Danh sách nằm bên trái.</span></div></div>`}</section>
+ </div>`;
+}
+function chatComposer(draftKey){
+ return `<div class="chat-compose-wrap">
       <div class="chat-toolbar">
         <button class="chat-tool" id="boldBtn" title="In đậm"><b>B</b></button>
         <button class="chat-tool" id="italicBtn" title="In nghiêng"><i>I</i></button>
@@ -1740,10 +1765,8 @@ function chatPage(){
         <span class="chat-format-help">B = đậm · I = nghiêng · Enter gửi</span>
       </div>
       <div id="chatImagePreview"></div>
-      <div class="chat-compose"><textarea id="chatInput" rows="1" placeholder="Nhập tin nhắn...">${esc(chatDrafts[active.id]||'')}</textarea><button class="primary" id="sendMessage">➤ Gửi</button></div>
-    </div>
-   `:`<div class="chat-empty"><div><b>Chọn một nhân viên</b><br><span class="sub">Danh sách hội thoại nằm bên trái.</span></div></div>`}</section>
- </div>`;
+      <div class="chat-compose"><textarea id="chatInput" rows="1" placeholder="Nhập tin nhắn...">${esc(chatDrafts[draftKey]||'')}</textarea><button class="primary" id="sendMessage">➤ Gửi</button></div>
+    </div>`
 }
 function profilePage(){
  const a=me();
@@ -1787,6 +1810,7 @@ async function sendMessage(){
  if(chatSending)return;chatSending=true;
  const input=document.getElementById('chatInput'),text=(input?.value||'').trim();
  if((!text&&!pendingChatImage)||!activeChatId){chatSending=false;return;}
+ const groupId=activeGroupId();
  const btn=document.getElementById('sendMessage');if(btn){btn.disabled=true;btn.textContent='Đang gửi...'}
  let imagePath='';
  try{
@@ -1796,12 +1820,21 @@ async function sendMessage(){
    const {error:upErr}=await supabaseClient.storage.from('chat-images').upload(imagePath,blob,{contentType:'image/jpeg',upsert:false});
    if(upErr)throw upErr
   }
-  const {error}=await supabaseClient.from('messages').insert({
-   sender_id:me().id,receiver_id:activeChatId,content:text||null,image_path:imagePath||null
-  });
+  let error;
+  if(groupId){
+   ({error}=await supabaseClient.from('chat_group_messages').insert({
+    group_id:groupId,sender_id:me().id,content:text||null,image_path:imagePath||null
+   }))
+  }else{
+   ({error}=await supabaseClient.from('messages').insert({
+    sender_id:me().id,receiver_id:activeChatId,content:text||null,image_path:imagePath||null
+   }))
+  }
   if(error)throw error;
-  pendingChatImage='';if(input)input.value='';if(activeChatId)delete chatDrafts[activeChatId];
-  await syncRemoteMessages(true);render();
+  pendingChatImage='';if(input)input.value='';delete chatDrafts[activeChatId];
+  if(groupId){await syncRemoteGroupChat(true);await markGroupRead(groupId)}
+  else await syncRemoteMessages(true);
+  render();
   setTimeout(()=>{const box=document.getElementById('messages');if(box)box.scrollTop=box.scrollHeight},0)
  }catch(err){
   console.error(err);showToast('Không gửi được: '+(err.message||err));
