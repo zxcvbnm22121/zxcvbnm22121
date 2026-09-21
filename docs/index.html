@@ -1943,7 +1943,7 @@ document.getElementById('loginForm').onsubmit=async e=>{
   const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});
   if(error)throw error;
   await activateRemoteUser(data.user);err.textContent=''
- }catch(ex){console.error(ex);err.textContent=ex.message==='Invalid login credentials'?'Email hoặc mật khẩu chưa đúng':ex.message}
+ }catch(ex){console.error(ex);const msg=ex?.message||'Đăng nhập thất bại';err.textContent='Supabase: '+msg}
 }
 document.getElementById('logoutBtn').onclick=async()=>{if(taskChannel){try{supabaseClient.removeChannel(taskChannel)}catch(e){}}await supabaseClient.auth.signOut();session=null;showLogin();document.getElementById('password').value=''}
 document.getElementById('menuBtn').onclick=()=>document.getElementById('sidebar').classList.toggle('open')
