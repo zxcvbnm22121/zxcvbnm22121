@@ -1096,30 +1096,9 @@ const seed={
 };
 function today(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function clone(x){return JSON.parse(JSON.stringify(x))}
-function load(){
- try{
-  const x=JSON.parse(localStorage.getItem(KEY));
-  const data=x&&x.accounts&&x.tasks?x:clone(seed);
-  if(!Array.isArray(data.messages))data.messages=[];
-  if(!Array.isArray(data.schedules))data.schedules=[];
-  if(!Array.isArray(data.announcements))data.announcements=clone(seed.announcements||[]);
-  if(!Array.isArray(data.leaveRequests))data.leaveRequests=[];
-  if(!data.reports)data.reports=clone(seed.reports);
-  ['ads','live','zalo','web'].forEach(k=>{if(!Array.isArray(data.reports[k]))data.reports[k]=[]});
-  if(!data.reportTargets)data.reportTargets=clone(seed.reportTargets);
-  data.messages.forEach(m=>{if(m.image===undefined)m.image='';if(m.format===undefined)m.format='plain'});
-  data.accounts.forEach(a=>{
-   if(a.title===undefined)a.title=a.role==='Leader'?'Leader Sale Online':'Sale Online';
-   if(a.phone===undefined)a.phone='';
-   if(a.zalo===undefined)a.zalo='';
-   if(a.email===undefined)a.email='';
-   if(a.avatar===undefined)a.avatar='';
-  });
-  return data
- }catch(e){return clone(seed)}
-}
-let state=load(),session=null,loginRole='Leader',route='overview',selected=new Set(),filters={q:'',employee:'',priority:''},activeChatId=null,chatSearch='',scheduleWeekOffset=0,reportTab='ads',reportMonth='2026-09',reportEditId=null,requestFilter='all',taskChannel=null,lastTaskSyncAt=null,chatDrafts={};
-function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+function load(){try{localStorage.removeItem(KEY)}catch(e){}return clone(seed)}
+let state=load(),session=null,loginRole='Leader',route='overview',selected=new Set(),filters={q:'',employee:'',priority:''},activeChatId=null,chatSearch='',scheduleWeekOffset=0,reportTab='ads',reportMonth=today().slice(0,7),reportEditId=null,requestFilter='all',taskChannel=null,lastTaskSyncAt=null,chatDrafts={};
+function save(){}
 function isChatComposing(){
  const el=document.activeElement;
  return route==='chat'&&el&&el.id==='chatInput';
@@ -1168,7 +1147,7 @@ async function syncRemoteTasks(silent=false){
   return {
    id:r.id,title:r.title,description:r.description||'',assignee:acct[r.assigned_to]?.name||'',
    assigneeId:r.assigned_to,createdBy:acct[r.created_by]?.name||'Leader',createdById:r.created_by,
-   priority:priorityUi(r.priority),deadline:r.deadline||'',status:r.status||'todo',
+   priority:priorityUi(r.priority),group:r.task_group||'',deadline:r.deadline||'',status:r.status||'todo',
    read:!!r.is_read,readAt:r.read_at||null,checklist:cp.items,checked:cp.checked,result:r.result||'',
    startedAt:r.started_at||null,completedAt:r.completed_at||null,createdAt:r.created_at,
    history:(histBy[r.id]||[]).map(h=>({time:h.created_at,by:acct[h.user_id]?.name||'Hệ thống',text:h.detail||h.action}))
@@ -1257,7 +1236,7 @@ async function bootSupabase(){
 
 function avatarHTML(a,cls='avatar'){
  const src=a?.avatar||'';
- return `<div class="${cls}">${src?`<img class="avatar-img" src="${src}" alt="">`:initials(a?.name||'')}</div>`;
+ return `<div class="${cls}">${src?`<img class="avatar-img" src="${esc(src)}" alt="">`:initials(a?.name||'')}</div>`;
 }
 function unreadMessages(){
  const id=me()?.id;if(!id)return 0;
@@ -1333,8 +1312,8 @@ function showToast(t){const e=document.getElementById('toast');e.textContent=t;e
 function fmtTime(iso){if(!iso)return'—';return new Date(iso).toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}
 function dueText(t){if(t.status==='done')return'Đã hoàn thành';const ms=new Date(t.deadline)-new Date();const min=Math.round(ms/60000);if(min<0){const a=Math.abs(min);return a<60?`Quá hạn ${a} phút`:`Quá hạn ${Math.floor(a/60)} giờ`}if(min<60)return`Còn ${min} phút`;if(min<1440)return`Còn ${Math.floor(min/60)} giờ`;return new Date(t.deadline).toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}
 function overdue(t){return t.status!=='done'&&new Date(t.deadline)<new Date()}
-function countsFor(name){const a=state.tasks.filter(t=>t.assignee===name);return{all:a.length,unread:a.filter(t=>!t.read&&t.status!=='done').length,pending:a.filter(t=>t.status!=='done').length,doing:a.filter(t=>t.status==='doing').length,done:a.filter(t=>t.status==='done').length,overdue:a.filter(overdue).length}}
-function myTasks(){return isLeader()?state.tasks:state.tasks.filter(t=>t.assignee===me().name)}
+function countsFor(key){const acc=state.accounts.find(x=>x.id===key||x.name===key);const a=state.tasks.filter(t=>acc?t.assigneeId===acc.id:t.assignee===key);return{all:a.length,unread:a.filter(t=>!t.read&&t.status!=='done').length,pending:a.filter(t=>t.status!=='done').length,doing:a.filter(t=>t.status==='doing').length,done:a.filter(t=>t.status==='done').length,overdue:a.filter(overdue).length}}
+function myTasks(){return isLeader()?state.tasks:state.tasks.filter(t=>t.assigneeId===me().id)}
 function totalCounts(){const a=myTasks();return{unread:a.filter(t=>!t.read&&t.status!=='done').length,pending:a.filter(t=>t.status!=='done').length,doing:a.filter(t=>t.status==='doing').length,done:a.filter(t=>t.status==='done').length,overdue:a.filter(overdue).length}}
 function mondayOf(date=new Date()){
  const d=new Date(date);d.setHours(0,0,0,0);const day=(d.getDay()+6)%7;d.setDate(d.getDate()-day);return d
@@ -1434,7 +1413,7 @@ function render(){
  const a=me();if(!a){showLogin();return}
  if(!isLeader()&&['overview','assign','employees'].includes(route))route='pending';
  renderNav();
- document.getElementById('displayName').textContent=a.name;document.getElementById('roleText').textContent=a.role;const av=document.getElementById('avatar');av.innerHTML=a.avatar?`<img class="avatar-img" src="${a.avatar}" alt="">`:initials(a.name);
+ document.getElementById('displayName').textContent=a.name;document.getElementById('roleText').textContent=a.role;const av=document.getElementById('avatar');av.innerHTML=a.avatar?`<img class="avatar-img" src="${esc(a.avatar)}" alt="">`:initials(a.name);
  const m=meta[route]||['Công việc',''];document.getElementById('topTitle').textContent=m[0];document.getElementById('topSub').textContent=m[1];
  document.getElementById('topAction').innerHTML=`<span class="online-pill"><i></i> ONLINE</span> `+(isLeader()&&['overview','unread','pending','doing','done'].includes(route)?`<button class="primary" onclick="go('assign')">+ Giao việc</button>`:'');
  let h='';if(route==='overview')h=overviewPage();if(route==='assign')h=assignPage();if(['unread','pending','doing','done'].includes(route))h=tasksPage(route);if(route==='employees')h=employeesPage();if(route==='permission')h=permissionPage();if(route==='schedule')h=schedulePage();if(route==='report')h=reportPage();if(route==='chat')h=chatPage();if(route==='profile')h=profilePage();if(route==='help')h=helpPage();
@@ -1444,10 +1423,11 @@ function head(title,desc,action=''){return`<div class="head"><div><h1>${title}</
 
 
 function announcementBoard(){
- const a=activeAnnouncements();
+ const d=today();
+ const a=(isLeader()?(state.announcements||[]).slice():activeAnnouncements()).sort((x,y)=>(x.priority==='Quan trọng'?0:1)-(y.priority==='Quan trọng'?0:1)||new Date(y.createdAt||0)-new Date(x.createdAt||0));
  return `<div class="announcement-board"><div class="announcement-hero">
   <div class="announcement-head"><div class="announcement-icon">◆</div><div><h3>Thông báo & chương trình</h3><div class="sub">${isLeader()?'Nội dung bạn đăng sẽ hiển thị cho toàn bộ Sale':'Thông tin mới nhất từ Leader'}</div></div>${isLeader()?'<button class="primary small announcement-admin-btn" id="addAnnouncement">+ Đăng chương trình</button>':''}</div>
-  <div class="announcement-list">${a.map(x=>`<div class="announcement ${x.priority==='Quan trọng'?'priority':''}"><div><div class="announcement-title">${esc(x.title)} ${x.priority==='Quan trọng'?'<span class="pill red">Quan trọng</span>':''}</div><div class="announcement-text">${esc(x.content)}</div><div class="announcement-foot"><span class="announcement-date">${x.start?new Date(x.start+'T00:00:00').toLocaleDateString('vi-VN'):''}${x.end?' → '+new Date(x.end+'T00:00:00').toLocaleDateString('vi-VN'):''}</span><span class="pill">${esc(x.createdBy||'Leader')}</span></div></div>${isLeader()?`<div class="announcement-actions"><button class="btn small" data-edit-announcement="${x.id}">Sửa</button><button class="btn small danger" data-delete-announcement="${x.id}">Xóa</button></div>`:''}</div>`).join('')||'<div class="announcement-empty">Hiện chưa có chương trình/thông báo đang áp dụng.</div>'}</div>
+  <div class="announcement-list">${a.map(x=>`<div class="announcement ${x.priority==='Quan trọng'?'priority':''}"><div><div class="announcement-title">${esc(x.title)} ${x.priority==='Quan trọng'?'<span class="pill red">Quan trọng</span>':''}${isLeader()&&x.active===false?'<span class="pill">Đang ẩn</span>':''}${isLeader()&&x.active!==false&&x.start&&x.start>d?'<span class="pill blue">Sắp áp dụng</span>':''}${isLeader()&&x.end&&x.end<d?'<span class="pill">Đã hết hạn</span>':''}</div><div class="announcement-text">${esc(x.content)}</div><div class="announcement-foot"><span class="announcement-date">${x.start?new Date(x.start+'T00:00:00').toLocaleDateString('vi-VN'):''}${x.end?' → '+new Date(x.end+'T00:00:00').toLocaleDateString('vi-VN'):''}</span><span class="pill">${esc(x.createdBy||'Leader')}</span></div></div>${isLeader()?`<div class="announcement-actions"><button class="btn small" data-edit-announcement="${x.id}">Sửa</button><button class="btn small danger" data-delete-announcement="${x.id}">Xóa</button></div>`:''}</div>`).join('')||'<div class="announcement-empty">Hiện chưa có chương trình/thông báo đang áp dụng.</div>'}</div>
  </div></div>`;
 }
 function openAnnouncement(a={}){
@@ -1461,9 +1441,9 @@ function openAnnouncement(a={}){
   <div class="field"><label>TRẠNG THÁI</label><select id="anActive"><option value="1" ${a.active!==false?'selected':''}>Đang hiển thị</option><option value="0" ${a.active===false?'selected':''}>Ẩn</option></select></div>
   <div class="field full"><label>NỘI DUNG</label><textarea id="anContent" rows="6" placeholder="Viết nội dung chương trình, lưu ý hoặc thông báo cần Sale nắm...">${esc(a.content||'')}</textarea></div>
  </div>`,[{label:editing?'Cập nhật':'Đăng thông báo',primary:true,action:async()=>{
-   const title=document.getElementById('anTitle').value.trim(),content=document.getElementById('anContent').value.trim();
-   if(!title||!content)return showToast('Nhập tiêu đề và nội dung');
-   const payload={title,content,start_date:document.getElementById('anStart').value||null,end_date:document.getElementById('anEnd').value||null,priority:document.getElementById('anPriority').value,active:document.getElementById('anActive').value==='1',updated_at:new Date().toISOString()};
+   const title=document.getElementById('anTitle').value.trim(),content=document.getElementById('anContent').value.trim(),start=document.getElementById('anStart').value,end=document.getElementById('anEnd').value;
+   if(!title||!content)return showToast('Nhập tiêu đề và nội dung');if(start&&end&&end<start)return showToast('Ngày kết thúc phải sau ngày bắt đầu');
+   const payload={title,content,start_date:start||null,end_date:end||null,priority:document.getElementById('anPriority').value,active:document.getElementById('anActive').value==='1',updated_at:new Date().toISOString()};
    let error;
    if(editing)({error}=await supabaseClient.from('announcements').update(payload).eq('id',a.id));
    else ({error}=await supabaseClient.from('announcements').insert({...payload,created_by:me().id}));
@@ -1497,7 +1477,7 @@ function assignPage(){
  `<div class="card pad" style="max-width:820px">
   <div class="formgrid">
    <div class="field full"><label>TÊN CÔNG VIỆC</label><input id="fTitle" placeholder="VD: Follow 80 khách Ads chưa mua"></div>
-   <div class="field"><label>GIAO CHO</label><select id="fAssignee">${state.accounts.filter(a=>a.role==='Sale'&&a.active).map(a=>`<option>${esc(a.name)}</option>`).join('')}</select></div>
+   <div class="field"><label>GIAO CHO</label><select id="fAssignee">${state.accounts.filter(a=>a.role==='Sale'&&a.active).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></div>
    <div class="field"><label>MỨC ƯU TIÊN</label><select id="fPriority"><option>Cao</option><option selected>Trung bình</option><option>Thấp</option></select></div>
    <div class="field"><label>DEADLINE</label><input id="fDeadline" type="datetime-local" value="${today()}T15:00"></div>
    <div class="field"><label>NHÓM VIỆC</label><select id="fGroup"><option>Bám đuổi khách</option><option>Khách mới</option><option>Livestream</option><option>Ads</option><option>Xin hàng</option><option>Kiểm tra tồn</option><option>CSKH</option><option>Báo cáo</option><option>Khác</option></select></div>
@@ -1524,7 +1504,7 @@ function tasksPage(mode){
  const [title,desc]=labels[mode];
  return head(isLeader()?title:(mode==='unread'?'Việc chưa đọc':mode==='pending'?'Việc cần làm':mode==='doing'?'Đang làm':'Đã hoàn thành'),desc)+
  (!isLeader()&&mode==='pending'?announcementBoard():'')+
- (isLeader()?`<div class="toolbar"><div class="search">⌕<input id="q" value="${esc(filters.q)}" placeholder="Tìm task..."></div><select id="employeeFilter"><option value="">Tất cả nhân viên</option>${state.accounts.filter(x=>x.role==='Sale').map(x=>`<option ${filters.employee===x.name?'selected':''}>${x.name}</option>`).join('')}</select><select id="priorityFilter"><option value="">Mọi ưu tiên</option>${['Cao','Trung bình','Thấp'].map(x=>`<option ${filters.priority===x?'selected':''}>${x}</option>`).join('')}</select><button class="btn" id="clearFilter">Xóa lọc</button></div>`:'')+
+ (isLeader()?`<div class="toolbar"><div class="search">⌕<input id="q" value="${esc(filters.q)}" placeholder="Tìm task..."></div><select id="employeeFilter"><option value="">Tất cả nhân viên</option>${state.accounts.filter(x=>x.role==='Sale').map(x=>`<option ${filters.employee===x.name?'selected':''} >${esc(x.name)}</option>`).join('')}</select><select id="priorityFilter"><option value="">Mọi ưu tiên</option>${['Cao','Trung bình','Thấp'].map(x=>`<option ${filters.priority===x?'selected':''}>${x}</option>`).join('')}</select><button class="btn" id="clearFilter">Xóa lọc</button></div>`:'')+
  (isLeader()&&a.length?bulkBar(a):'')+
  `<div class="tasklist">${a.map(taskCard).join('')||emptyState(mode)}</div>`;
 }
@@ -1537,7 +1517,7 @@ function taskCard(t){
   ${isLeader()?`<input class="check taskSelect" type="checkbox" data-id="${t.id}" ${selected.has(t.id)?'checked':''}>`:`<div style="width:5px"></div>`}
   <div class="taskmain">
    <h3>${esc(t.title)}${!t.read&&t.status!=='done'?'<span class="newtag">MỚI</span>':''}</h3>
-   <div class="meta"><span class="pill ${priority}">${t.priority}</span><span class="pill">${esc(t.assignee)}</span><span class="pill ${t.status==='done'?'green':t.status==='doing'?'orange':'blue'}">${t.status==='done'?'Hoàn thành':t.status==='doing'?'Đang làm':t.read?'Đã đọc':'Chưa đọc'}</span>${overdue(t)?'<span class="pill red">QUÁ HẠN</span>':''}</div>
+   <div class="meta"><span class="pill ${priority}">${t.priority}</span>${t.group?`<span class="pill">${esc(t.group)}</span>`:''}<span class="pill">${esc(t.assignee)}</span><span class="pill ${t.status==='done'?'green':t.status==='doing'?'orange':'blue'}">${t.status==='done'?'Hoàn thành':t.status==='doing'?'Đang làm':t.read?'Đã đọc':'Chưa đọc'}</span>${overdue(t)?'<span class="pill red">QUÁ HẠN</span>':''}</div>
    <div class="taskdesc">${esc(t.description||'Không có mô tả')}</div>
    ${(t.checklist||[]).length?`<div class="sub" style="margin-top:8px">Checklist ${(t.checked||[]).length}/${t.checklist.length}</div>`:''}
   </div>
@@ -1595,7 +1575,7 @@ function profilePage(){
  return head('Hồ sơ của tôi','Thông tin này hiển thị trong danh bạ và khung chat')+
  `<div class="profile-layout">
   <div class="card profile-card">
-   <div class="profile-avatar" id="profileAvatarPreview">${a.avatar?`<img class="avatar-img" src="${a.avatar}" alt="">`:initials(a.name)}</div>
+   <div class="profile-avatar" id="profileAvatarPreview">${a.avatar?`<img class="avatar-img" src="${esc(a.avatar)}" alt="">`:initials(a.name)}</div>
    <div class="profile-name">${esc(a.name)}</div><div class="profile-role">${esc(a.title||a.role)}</div>
    <input class="avatar-upload" id="avatarFile" type="file" accept="image/*">
    <button class="btn" id="chooseAvatar">Thay avatar</button>
@@ -1613,7 +1593,7 @@ function profilePage(){
     <div class="field"><label>CHỨC DANH</label><input id="pTitle" value="${esc(a.title||'')}"></div>
     <div class="field"><label>SỐ ĐIỆN THOẠI</label><input id="pPhone" value="${esc(a.phone||'')}" placeholder="09..."></div>
     <div class="field"><label>ZALO</label><input id="pZalo" value="${esc(a.zalo||'')}" placeholder="SĐT hoặc tên Zalo"></div>
-    <div class="field full"><label>EMAIL</label><input id="pEmail" type="email" value="${esc(a.email||'')}" placeholder="email@sevenam.vn"></div>
+    <div class="field full"><label>EMAIL LIÊN HỆ</label><input id="pEmail" type="email" value="${esc(a.email||'')}" placeholder="email@sevenam.vn"></div>
    </div>
    <div class="profile-hint">Avatar sẽ được tự thu nhỏ trước khi lưu để website nhẹ hơn. Thông tin liên hệ chỉ hiển thị cho người đăng nhập trong hệ thống này.</div>
    <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="primary" id="saveProfile">Lưu hồ sơ</button></div>
@@ -1622,7 +1602,7 @@ function profilePage(){
 }
 function openPublicProfile(id){
  const a=state.accounts.find(x=>x.id===id);if(!a)return;
- openModal('Tiểu sử nhân viên',`<div class="profile-view">${a.avatar?`<div class="profile-avatar"><img class="avatar-img" src="${a.avatar}" alt=""></div>`:`<div class="profile-avatar">${initials(a.name)}</div>`}<div><h3 style="margin:0 0 4px">${esc(a.name)}</h3><div class="sub">${esc(a.title||a.role)}</div><div class="profile-contact-list"><div class="profile-contact"><span>SỐ ĐIỆN THOẠI</span>${safeContact(a.phone)}</div><div class="profile-contact"><span>ZALO</span>${safeContact(a.zalo)}</div><div class="profile-contact"><span>EMAIL</span>${safeContact(a.email)}</div></div></div></div>`,[{label:'Nhắn tin',primary:true,action:()=>{closeModal();activeChatId=a.id;go('chat')}}])
+ openModal('Tiểu sử nhân viên',`<div class="profile-view">${a.avatar?`<div class="profile-avatar"><img class="avatar-img" src="${esc(a.avatar)}" alt=""></div>`:`<div class="profile-avatar">${initials(a.name)}</div>`}<div><h3 style="margin:0 0 4px">${esc(a.name)}</h3><div class="sub">${esc(a.title||a.role)}</div><div class="profile-contact-list"><div class="profile-contact"><span>SỐ ĐIỆN THOẠI</span>${safeContact(a.phone)}</div><div class="profile-contact"><span>ZALO</span>${safeContact(a.zalo)}</div><div class="profile-contact"><span>EMAIL</span>${safeContact(a.email)}</div></div></div></div>`,[{label:'Nhắn tin',primary:true,action:()=>{closeModal();activeChatId=a.id;go('chat')}}])
 }
 let pendingChatImage='';
 async function dataUrlToBlob(dataUrl){
@@ -1746,7 +1726,7 @@ function reviewRequest(id){
   {label:'Từ chối',danger:true,action:async()=>{const note=document.getElementById('leaderRequestNote').value.trim();const now=new Date().toISOString();const {error}=await supabaseClient.from('leave_requests').update({status:'Từ chối',leader_note:note||null,reviewed_at:now,reviewed_by:me().id,updated_at:now}).eq('id',x.id);if(error)return showToast(error.message);await syncRemoteModules(true);closeModal();render();showToast('Đã từ chối đơn')}},
   {label:'Duyệt',primary:true,action:async()=>{const note=document.getElementById('leaderRequestNote').value.trim();const now=new Date().toISOString();const {error}=await supabaseClient.from('leave_requests').update({status:'Đã duyệt',leader_note:note||null,reviewed_at:now,reviewed_by:me().id,updated_at:now}).eq('id',x.id);if(error)return showToast(error.message);
     if(x.type==='Nghỉ phép'){
-      const rows=dateRange(x.dateFrom,x.dateTo).map(ds=>({user_id:x.userId,work_date:ds,shift:'Nghỉ',start_time:null,end_time:null,note:`Nghỉ phép đã duyệt${x.session&&x.session!=='Cả ngày'?' · '+x.session:''}: ${x.reason||''}`,status:'Đã duyệt',reviewed_at:now,reviewed_by:me().id,updated_at:now}));
+      const leaveShift=x.session&&x.session!=='Cả ngày'?`Nghỉ ${x.session.toLowerCase()}`:'Nghỉ';const rows=dateRange(x.dateFrom,x.dateTo).map(ds=>({user_id:x.userId,work_date:ds,shift:leaveShift,start_time:null,end_time:null,note:`Nghỉ phép đã duyệt${x.session&&x.session!=='Cả ngày'?' · '+x.session:''}: ${x.reason||''}`,status:'Đã duyệt',reviewed_at:now,reviewed_by:me().id,updated_at:now}));
       const {error:se}=await supabaseClient.from('work_schedules').upsert(rows,{onConflict:'user_id,work_date'});if(se)console.warn(se)
     }
     await syncRemoteModules(true);closeModal();render();showToast('Đã duyệt đơn xin phép')
@@ -1756,11 +1736,11 @@ function reviewRequest(id){
 
 function saleWorkCalendar(days,userId){
  const user=state.accounts.find(a=>a.id===userId)||me();
- return `<div class="workcal-wrap"><div class="workcal-head"><h3>Lịch làm việc của ${esc(user.name)}</h3><div class="workcal-legend"><span class="legend-item"><i class="legend-dot approved"></i>Đã duyệt</span><span class="legend-item"><i class="legend-dot pending"></i>Chờ duyệt</span><span class="legend-item"><i class="legend-dot leave"></i>Nghỉ</span><span class="legend-item"><i class="legend-dot empty"></i>Chưa đăng ký</span></div></div><div class="workcal-grid">${days.map(d=>{const ds=isoDate(d),x=scheduleFor(userId,ds),todayFlag=ds===today();let block='';if(x){const cls=x.shift==='Nghỉ'?'leave':x.status==='Đã duyệt'?'approved':x.status==='Từ chối'?'rejected':'pending';block=`<div class="workcal-shift ${cls}"><b>${esc(x.shift)}</b><small>${x.shift==='Nghỉ'?'Nghỉ':`${esc(x.start||'--:--')} → ${esc(x.end||'--:--')}`}<br>${esc(x.status)}</small></div>`}else block='<div class="workcal-empty">Chưa có lịch</div>';return`<div class="workcal-day ${todayFlag?'today':''}"><div class="workcal-day-head"><div><div class="workcal-weekday">${d.toLocaleDateString('vi-VN',{weekday:'short'})}</div><div class="workcal-date">${String(d.getDate()).padStart(2,'0')}</div></div><div class="workcal-month">T${d.getMonth()+1}</div></div>${block}</div>`}).join('')}</div></div>`;
+ return `<div class="workcal-wrap"><div class="workcal-head"><h3>Lịch làm việc của ${esc(user.name)}</h3><div class="workcal-legend"><span class="legend-item"><i class="legend-dot approved"></i>Đã duyệt</span><span class="legend-item"><i class="legend-dot pending"></i>Chờ duyệt</span><span class="legend-item"><i class="legend-dot leave"></i>Nghỉ</span><span class="legend-item"><i class="legend-dot empty"></i>Chưa đăng ký</span></div></div><div class="workcal-grid">${days.map(d=>{const ds=isoDate(d),x=scheduleFor(userId,ds),todayFlag=ds===today();let block='';if(x){const cls=String(x.shift||'').startsWith('Nghỉ')?'leave':x.status==='Đã duyệt'?'approved':x.status==='Từ chối'?'rejected':'pending';block=`<div class="workcal-shift ${cls}"><b>${esc(x.shift)}</b><small>${String(x.shift||'').startsWith('Nghỉ')?'Nghỉ':`${esc(x.start||'--:--')} → ${esc(x.end||'--:--')}`}<br>${esc(x.status)}</small></div>`}else block='<div class="workcal-empty">Chưa có lịch</div>';return`<div class="workcal-day ${todayFlag?'today':''}"><div class="workcal-day-head"><div><div class="workcal-weekday">${d.toLocaleDateString('vi-VN',{weekday:'short'})}</div><div class="workcal-date">${String(d.getDate()).padStart(2,'0')}</div></div><div class="workcal-month">T${d.getMonth()+1}</div></div>${block}</div>`}).join('')}</div></div>`;
 }
 function teamWorkCalendar(days){
  const sales=state.accounts.filter(a=>a.role==='Sale'&&a.active);
- return `<div class="workcal-wrap"><div class="workcal-head"><h3>Lịch làm việc toàn team</h3><div class="workcal-legend"><span class="legend-item"><i class="legend-dot approved"></i>Đã duyệt</span><span class="legend-item"><i class="legend-dot pending"></i>Chờ duyệt</span><span class="legend-item"><i class="legend-dot leave"></i>Nghỉ</span></div></div><div style="overflow:auto"><div class="team-calendar"><div class="tc-head">Nhân viên</div>${days.map(d=>`<div class="tc-head">${d.toLocaleDateString('vi-VN',{weekday:'short'})}<br>${d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</div>`).join('')}${sales.map(u=>`<div class="tc-name">${avatarHTML(u)} ${esc(u.name)}</div>${days.map(d=>{const x=scheduleFor(u.id,isoDate(d));if(!x)return'<div></div>';const cls=x.shift==='Nghỉ'?'leave':x.status==='Đã duyệt'?'approved':x.status==='Chờ duyệt'?'pending':'';return`<div><div class="tc-shift ${cls}"><b>${esc(x.shift)}</b><span>${x.shift==='Nghỉ'?'Nghỉ':`${esc(x.start||'--:--')}–${esc(x.end||'--:--')}`}<br>${esc(x.status)}</span></div></div>`}).join('')}`).join('')}</div></div></div>`;
+ return `<div class="workcal-wrap"><div class="workcal-head"><h3>Lịch làm việc toàn team</h3><div class="workcal-legend"><span class="legend-item"><i class="legend-dot approved"></i>Đã duyệt</span><span class="legend-item"><i class="legend-dot pending"></i>Chờ duyệt</span><span class="legend-item"><i class="legend-dot leave"></i>Nghỉ</span></div></div><div style="overflow:auto"><div class="team-calendar"><div class="tc-head">Nhân viên</div>${days.map(d=>`<div class="tc-head">${d.toLocaleDateString('vi-VN',{weekday:'short'})}<br>${d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</div>`).join('')}${sales.map(u=>`<div class="tc-name">${avatarHTML(u)} ${esc(u.name)}</div>${days.map(d=>{const x=scheduleFor(u.id,isoDate(d));if(!x)return'<div></div>';const cls=String(x.shift||'').startsWith('Nghỉ')?'leave':x.status==='Đã duyệt'?'approved':x.status==='Chờ duyệt'?'pending':'';return`<div><div class="tc-shift ${cls}"><b>${esc(x.shift)}</b><span>${String(x.shift||'').startsWith('Nghỉ')?'Nghỉ':`${esc(x.start||'--:--')}–${esc(x.end||'--:--')}`}<br>${esc(x.status)}</span></div></div>`}).join('')}`).join('')}</div></div></div>`;
 }
 
 function schedulePage(){
@@ -1771,12 +1751,12 @@ function schedulePage(){
   return head('Đăng ký & lịch làm việc','Đăng ký ca xong sẽ hiển thị trực tiếp trên lịch tuần của bạn.')+controls+
   saleWorkCalendar(days,me().id)+
   `<div class="sectionhead" style="margin-top:18px"><h3>Chi tiết đăng ký</h3><small>Bấm Sửa nếu cần thay đổi ca</small></div>`+
-  `<div class="schedule-sale-grid">${days.map(d=>{const ds=isoDate(d),x=scheduleFor(me().id,ds),todayFlag=ds===today();return`<div class="schedule-day ${todayFlag?'today-card':''}"><div class="schedule-date">${d.toLocaleDateString('vi-VN',{weekday:'long'})}<b>${d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</b></div>${x?`<div class="shift-name">${esc(x.shift)}</div>${x.shift!=='Nghỉ'?`<div class="shift-time">${esc(x.start||'--:--')} → ${esc(x.end||'--:--')}</div>`:''}<div class="schedule-note">${esc(x.note||'Không có ghi chú')}</div><div class="schedule-status"><span class="pill ${x.status==='Đã duyệt'?'green':x.status==='Từ chối'?'red':'orange'}">${x.status}</span></div><div class="actions" style="justify-content:flex-start;margin-top:10px"><button class="btn small" data-edit-schedule="${x.id}">Sửa</button></div>`:`<div class="empty" style="padding:28px 0 12px"><b>Chưa đăng ký</b></div><button class="btn small" data-new-schedule="${ds}">+ Đăng ký ngày này</button>`}</div>`}).join('')}</div>`;
+  `<div class="schedule-sale-grid">${days.map(d=>{const ds=isoDate(d),x=scheduleFor(me().id,ds),todayFlag=ds===today();return`<div class="schedule-day ${todayFlag?'today-card':''}"><div class="schedule-date">${d.toLocaleDateString('vi-VN',{weekday:'long'})}<b>${d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</b></div>${x?`<div class="shift-name">${esc(x.shift)}</div>${!String(x.shift||'').startsWith('Nghỉ')?`<div class="shift-time">${esc(x.start||'--:--')} → ${esc(x.end||'--:--')}</div>`:''}<div class="schedule-note">${esc(x.note||'Không có ghi chú')}</div><div class="schedule-status"><span class="pill ${x.status==='Đã duyệt'?'green':x.status==='Từ chối'?'red':'orange'}">${x.status}</span></div><div class="actions" style="justify-content:flex-start;margin-top:10px"><button class="btn small" data-edit-schedule="${x.id}">Sửa</button></div>`:`<div class="empty" style="padding:28px 0 12px"><b>Chưa đăng ký</b></div><button class="btn small" data-new-schedule="${ds}">+ Đăng ký ngày này</button>`}</div>`}).join('')}</div>`;
  }
  return head('Lịch làm việc của team','Leader xem nhanh toàn bộ ca làm/nghỉ và duyệt từng đăng ký')+controls+
  teamWorkCalendar(days)+
  `<div class="sectionhead" style="margin-top:18px"><h3>Chi tiết đăng ký theo nhân viên</h3><small>Bấm từng ca để duyệt</small></div>`+
- `<div class="card schedule-table-wrap"><table class="schedule-table"><thead><tr><th>Nhân viên</th>${days.map(d=>`<th>${d.toLocaleDateString('vi-VN',{weekday:'short'})}<br>${d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</th>`).join('')}</tr></thead><tbody>${sales.map(u=>`<tr><td>${avatarHTML(u)}<b style="font-size:11px">${esc(u.name)}</b></td>${days.map(d=>{const x=scheduleFor(u.id,isoDate(d));return`<td>${x?`<div class="shift-chip ${x.status==='Đã duyệt'?'approved':x.status==='Từ chối'?'rejected':'pending'}" data-view-schedule="${x.id}"><b>${esc(x.shift)}</b><small>${x.shift==='Nghỉ'?'Nghỉ':`${esc(x.start||'--:--')}–${esc(x.end||'--:--')}`}<br>${x.status}</small></div>`:'<span class="sub">—</span>'}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`;
+ `<div class="card schedule-table-wrap"><table class="schedule-table"><thead><tr><th>Nhân viên</th>${days.map(d=>`<th>${d.toLocaleDateString('vi-VN',{weekday:'short'})}<br>${d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</th>`).join('')}</tr></thead><tbody>${sales.map(u=>`<tr><td>${avatarHTML(u)}<b style="font-size:11px">${esc(u.name)}</b></td>${days.map(d=>{const x=scheduleFor(u.id,isoDate(d));return`<td>${x?`<div class="shift-chip ${x.status==='Đã duyệt'?'approved':x.status==='Từ chối'?'rejected':'pending'}" data-view-schedule="${x.id}"><b>${esc(x.shift)}</b><small>${String(x.shift||'').startsWith('Nghỉ')?'Nghỉ':`${esc(x.start||'--:--')}–${esc(x.end||'--:--')}`}<br>${x.status}</small></div>`:'<span class="sub">—</span>'}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 function openScheduleForm(date,id=null){
  let x=id?state.schedules.find(s=>s.id===id):null;
@@ -1791,7 +1771,7 @@ function openScheduleForm(date,id=null){
 }
 function openScheduleReview(id){
  const x=state.schedules.find(s=>s.id===id);if(!x)return;
- openModal('Duyệt lịch — '+x.employee,`<div class="grid g2"><div class="card pad"><div class="sub">Ngày</div><b>${new Date(x.date+'T00:00:00').toLocaleDateString('vi-VN',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'})}</b></div><div class="card pad"><div class="sub">Ca</div><b>${esc(x.shift)}</b></div></div><div class="taskdesc" style="margin-top:12px">${x.shift==='Nghỉ'?'Đăng ký nghỉ':`${esc(x.start||'--:--')} → ${esc(x.end||'--:--')}`}<br>${esc(x.note||'Không có ghi chú')}</div>`,[
+ openModal('Duyệt lịch — '+x.employee,`<div class="grid g2"><div class="card pad"><div class="sub">Ngày</div><b>${new Date(x.date+'T00:00:00').toLocaleDateString('vi-VN',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'})}</b></div><div class="card pad"><div class="sub">Ca</div><b>${esc(x.shift)}</b></div></div><div class="taskdesc" style="margin-top:12px">${String(x.shift||'').startsWith('Nghỉ')?'Đăng ký nghỉ':`${esc(x.start||'--:--')} → ${esc(x.end||'--:--')}`}<br>${esc(x.note||'Không có ghi chú')}</div>`,[
   {label:'Từ chối',danger:true,action:async()=>{const now=new Date().toISOString();const {error}=await supabaseClient.from('work_schedules').update({status:'Từ chối',reviewed_at:now,reviewed_by:me().id,updated_at:now}).eq('id',x.id);if(error)return showToast(error.message);await syncRemoteModules(true);closeModal();render();showToast('Đã từ chối lịch')}},
   {label:'Duyệt',primary:true,action:async()=>{const now=new Date().toISOString();const {error}=await supabaseClient.from('work_schedules').update({status:'Đã duyệt',reviewed_at:now,reviewed_by:me().id,updated_at:now}).eq('id',x.id);if(error)return showToast(error.message);await syncRemoteModules(true);closeModal();render();showToast('Đã duyệt lịch')}}
  ])
@@ -1826,9 +1806,9 @@ function reportEntryPage(type){
 function reportTable(type,a){
  const totals={orders:sumBy(a,'orders'),sales:sumBy(a,'sales'),products:sumBy(a,'products')};
  if(type==='ads')return `<div class="report-kpis">${metric('Data',num(sumBy(a,'data')),'Tổng data Ads')}${metric('Đơn',num(totals.orders),'Tổng đơn Ads')}${metric('Doanh số',money(totals.sales),'Ads')}${metric('CR',pct2(totals.orders,sumBy(a,'data')),'Đơn / Data')}</div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>Ngày</th><th>Nhân viên</th><th>Data</th><th>Đơn</th><th>Doanh số</th><th>SP</th><th>CR</th><th></th></tr></thead><tbody>${a.map(x=>`<tr><td>${new Date(x.date+'T00:00:00').toLocaleDateString('vi-VN')}</td><td>${esc(x.employee)}</td><td>${num(x.data)}</td><td>${num(x.orders)}</td><td>${money(x.sales)}</td><td>${num(x.products)}</td><td>${pct2(x.orders,x.data)}</td><td><button class="btn small" data-edit-report="${x.id}">Sửa</button></td></tr>`).join('')}<tr class="report-total"><td>TỔNG THÁNG</td><td></td><td>${num(sumBy(a,'data'))}</td><td>${num(totals.orders)}</td><td>${money(totals.sales)}</td><td>${num(totals.products)}</td><td>${pct2(totals.orders,sumBy(a,'data'))}</td><td></td></tr></tbody></table></div>`;
- if(type==='live')return `<div class="report-kpis">${metric('Data Live',num(sumBy(a,'data')),'Tổng tháng')}${metric('Đơn Live',num(totals.orders),'Tổng tháng')}${metric('Doanh số',money(totals.sales),'Livestream')}${metric('CR',pct2(totals.orders,sumBy(a,'data')),'Đơn / Data')}</div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>Ngày</th><th></th><th>Data Live</th><th>Đơn</th><th>CR</th><th>Doanh số</th><th>SP</th><th>AOV</th><th></th></tr></thead><tbody>${a.map(x=>`<tr><td>${new Date(x.date+'T00:00:00').toLocaleDateString('vi-VN')}</td><td></td><td>${num(x.data)}</td><td>${num(x.orders)}</td><td>${pct2(x.orders,x.data)}</td><td>${money(x.sales)}</td><td>${num(x.products)}</td><td>${money(x.products?x.sales/x.products:0)}</td><td><button class="btn small" data-edit-report="${x.id}">Sửa</button></td></tr>`).join('')}</tbody></table></div>`;
- if(type==='zalo')return `<div class="report-kpis">${metric('KH quan tâm',num(sumBy(a,'interested')),'Zalo')}${metric('Đơn',num(totals.orders),'Zalo')}${metric('Doanh số',money(totals.sales),'Zalo')}${metric('CR',pct2(totals.orders,sumBy(a,'interested')),'Đơn / KH quan tâm')}</div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>Ngày</th><th>Nhân viên</th><th>Bài đăng</th><th>KH QT</th><th>Đơn</th><th>CR</th><th>Doanh số</th><th>SP</th><th>AOV</th><th></th></tr></thead><tbody>${a.map(x=>`<tr><td>${new Date(x.date+'T00:00:00').toLocaleDateString('vi-VN')}</td><td>${esc(x.employee)}</td><td>${num(x.posts)}</td><td>${num(x.interested)}</td><td>${num(x.orders)}</td><td>${pct2(x.orders,x.interested)}</td><td>${money(x.sales)}</td><td>${num(x.products)}</td><td>${money(x.products?x.sales/x.products:0)}</td><td><button class="btn small" data-edit-report="${x.id}">Sửa</button></td></tr>`).join('')}</tbody></table></div>`;
- return `<div class="report-kpis">${metric('Đơn Web',num(totals.orders),'Website')}${metric('Doanh số',money(totals.sales),'Website')}${metric('Sản phẩm',num(totals.products),'Website')}${metric('UPT',totals.orders?(totals.products/totals.orders).toFixed(2):'0','SP / Đơn')}</div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>Ngày</th><th>NV trực</th><th>Đơn</th><th>Doanh số</th><th>SP</th><th>AOV</th><th>UPT</th><th>Ghi chú</th><th></th></tr></thead><tbody>${a.map(x=>`<tr><td>${new Date(x.date+'T00:00:00').toLocaleDateString('vi-VN')}</td><td>${esc(x.employee||'')}</td><td>${num(x.orders)}</td><td>${money(x.sales)}</td><td>${num(x.products)}</td><td>${money(x.products?x.sales/x.products:0)}</td><td>${x.orders?(x.products/x.orders).toFixed(2):'0'}</td><td style="text-align:left">${esc(x.note||'')}</td><td><button class="btn small" data-edit-report="${x.id}">Sửa</button></td></tr>`).join('')}</tbody></table></div>`;
+ if(type==='live')return `<div class="report-kpis">${metric('Data Live',num(sumBy(a,'data')),'Tổng tháng')}${metric('Đơn Live',num(totals.orders),'Tổng tháng')}${metric('Doanh số',money(totals.sales),'Livestream')}${metric('CR',pct2(totals.orders,sumBy(a,'data')),'Đơn / Data')}</div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>Ngày</th><th></th><th>Data Live</th><th>Đơn</th><th>CR</th><th>Doanh số</th><th>SP</th><th>AOV</th><th></th></tr></thead><tbody>${a.map(x=>`<tr><td>${new Date(x.date+'T00:00:00').toLocaleDateString('vi-VN')}</td><td></td><td>${num(x.data)}</td><td>${num(x.orders)}</td><td>${pct2(x.orders,x.data)}</td><td>${money(x.sales)}</td><td>${num(x.products)}</td><td>${money(x.orders?x.sales/x.orders:0)}</td><td><button class="btn small" data-edit-report="${x.id}">Sửa</button></td></tr>`).join('')}</tbody></table></div>`;
+ if(type==='zalo')return `<div class="report-kpis">${metric('KH quan tâm',num(sumBy(a,'interested')),'Zalo')}${metric('Đơn',num(totals.orders),'Zalo')}${metric('Doanh số',money(totals.sales),'Zalo')}${metric('CR',pct2(totals.orders,sumBy(a,'interested')),'Đơn / KH quan tâm')}</div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>Ngày</th><th>Nhân viên</th><th>Bài đăng</th><th>KH QT</th><th>Đơn</th><th>CR</th><th>Doanh số</th><th>SP</th><th>AOV</th><th></th></tr></thead><tbody>${a.map(x=>`<tr><td>${new Date(x.date+'T00:00:00').toLocaleDateString('vi-VN')}</td><td>${esc(x.employee)}</td><td>${num(x.posts)}</td><td>${num(x.interested)}</td><td>${num(x.orders)}</td><td>${pct2(x.orders,x.interested)}</td><td>${money(x.sales)}</td><td>${num(x.products)}</td><td>${money(x.orders?x.sales/x.orders:0)}</td><td><button class="btn small" data-edit-report="${x.id}">Sửa</button></td></tr>`).join('')}</tbody></table></div>`;
+ return `<div class="report-kpis">${metric('Đơn Web',num(totals.orders),'Website')}${metric('Doanh số',money(totals.sales),'Website')}${metric('Sản phẩm',num(totals.products),'Website')}${metric('UPT',totals.orders?(totals.products/totals.orders).toFixed(2):'0','SP / Đơn')}</div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>Ngày</th><th>NV trực</th><th>Đơn</th><th>Doanh số</th><th>SP</th><th>AOV</th><th>UPT</th><th>Ghi chú</th><th></th></tr></thead><tbody>${a.map(x=>`<tr><td>${new Date(x.date+'T00:00:00').toLocaleDateString('vi-VN')}</td><td>${esc(x.employee||'')}</td><td>${num(x.orders)}</td><td>${money(x.sales)}</td><td>${num(x.products)}</td><td>${money(x.orders?x.sales/x.orders:0)}</td><td>${x.orders?(x.products/x.orders).toFixed(2):'0'}</td><td style="text-align:left">${esc(x.note||'')}</td><td><button class="btn small" data-edit-report="${x.id}">Sửa</button></td></tr>`).join('')}</tbody></table></div>`;
 }
 function reportSummary(){
  const ads=(state.reports.ads||[]).filter(x=>reportMonthMatch(x.date)),live=(state.reports.live||[]).filter(x=>reportMonthMatch(x.date)),zalo=(state.reports.zalo||[]).filter(x=>reportMonthMatch(x.date)),web=(state.reports.web||[]).filter(x=>reportMonthMatch(x.date));
@@ -1849,6 +1829,7 @@ async function saveReportRecord(){
  const date=document.getElementById('rpDate')?.value;if(!date)return showToast('Chọn ngày');
  const employeeName=document.getElementById('rpEmployee')?.value||me().name;
  const employee=state.accounts.find(a=>a.name===employeeName);
+ const dup=(state.reports[type]||[]).find(x=>x.id!==reportEditId&&x.date===date&&(type==='live'||(x.employee||'')===(employeeName||'')));if(dup)return showToast(type==='live'?'Ngày này đã có báo cáo Livestream':'Ngày này đã có dữ liệu của nhân viên này');
  const payload={channel:type,report_date:date,employee_id:employee?.id||null,employee_name:employeeName,entered_by:me().id,
   data_count:+(document.getElementById('rpData')?.value||0),orders:+(document.getElementById('rpOrders')?.value||0),
   sales:+(document.getElementById('rpSales')?.value||0),products:+(document.getElementById('rpProducts')?.value||0),
@@ -1894,8 +1875,6 @@ function bindPage(){
  document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openTask(b.dataset.open,false))
  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editTask(b.dataset.edit))
  const create=document.getElementById('createTaskBtn');if(create)create.onclick=createTask
- const add=document.getElementById('addEmployee');if(add)add.onclick=()=>openAccount()
- document.querySelectorAll('[data-account]').forEach(b=>b.onclick=()=>openAccount(state.accounts.find(a=>a.id===b.dataset.account)))
 
  const aa=document.getElementById('addAnnouncement');if(aa)aa.onclick=()=>openAnnouncement()
  document.querySelectorAll('[data-edit-announcement]').forEach(b=>b.onclick=()=>openAnnouncement(state.announcements.find(x=>x.id===b.dataset.editAnnouncement)||{}))
@@ -1942,13 +1921,13 @@ function bindPage(){
 
 }
 async function createTask(){
- const title=document.getElementById('fTitle').value.trim(),assignee=document.getElementById('fAssignee').value,deadline=document.getElementById('fDeadline').value;
+ const title=document.getElementById('fTitle').value.trim(),assigneeId=document.getElementById('fAssignee').value,deadline=document.getElementById('fDeadline').value;
  if(!title||!deadline)return showToast('Nhập tên công việc và deadline');
- const target=state.accounts.find(a=>a.name===assignee&&a.role==='Sale');
+ const target=state.accounts.find(a=>a.id===assigneeId&&a.role==='Sale');
  if(!target)return showToast('Không tìm thấy tài khoản nhân viên trong Supabase');
  const payload={
   title,description:document.getElementById('fDesc').value.trim(),assigned_to:target.id,created_by:me().id,
-  priority:priorityDb(document.getElementById('fPriority').value),status:'todo',
+  priority:priorityDb(document.getElementById('fPriority').value),task_group:document.getElementById('fGroup').value,status:'todo',
   deadline:new Date(deadline).toISOString(),is_read:false,
   checklist:{items:document.getElementById('fChecklist').value.split('\n').map(x=>x.trim()).filter(Boolean),checked:[]},
   result:''
@@ -1956,7 +1935,7 @@ async function createTask(){
  const {data,error}=await supabaseClient.from('tasks').insert(payload).select().single();
  if(error)return showToast('Không giao được task: '+error.message);
  await addRemoteHistory(data.id,'created','Đã giao task');
- await syncRemoteTasks(true);showToast(`Đã giao việc cho ${assignee}`);filters={q:'',employee:assignee,priority:''};go('pending')
+ await syncRemoteTasks(true);showToast(`Đã giao việc cho ${target.name}`);filters={q:'',employee:target.name,priority:''};go('pending')
 }
 async function markRead(t){
  if(t.read)return;
@@ -1975,7 +1954,7 @@ async function startTask(id){
 }
 async function openTask(id,fromUnread=false){
  const t=state.tasks.find(x=>x.id===id);if(!t)return;
- if(!isLeader()&&t.assignee!==me().name)return;
+ if(!isLeader()&&t.assigneeId!==me().id)return;
  if(!isLeader()&&!t.read){await markRead(t);render();}
  const canWork=!isLeader()&&t.status!=='done';
  openModal(t.title,`
@@ -2017,11 +1996,11 @@ async function completeTask(id){
 }
 function editTask(id){
  const t=state.tasks.find(x=>x.id===id);if(!t||!isLeader())return;
- openModal('Sửa task',`<div class="formgrid"><div class="field full"><label>TÊN CÔNG VIỆC</label><input id="eTitle" value="${esc(t.title)}"></div><div class="field"><label>GIAO CHO</label><select id="eAssignee">${state.accounts.filter(a=>a.role==='Sale'&&a.active).map(a=>`<option ${a.name===t.assignee?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div><div class="field"><label>ƯU TIÊN</label><select id="ePriority">${['Cao','Trung bình','Thấp'].map(x=>`<option ${x===t.priority?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>DEADLINE</label><input id="eDeadline" type="datetime-local" value="${localInputFromIso(t.deadline)}"></div><div class="field full"><label>YÊU CẦU</label><textarea id="eDesc" rows="4">${esc(t.description)}</textarea></div><div class="field full"><label>CHECKLIST</label><textarea id="eChecklist" rows="4">${esc((t.checklist||[]).join('\n'))}</textarea></div></div>`,[{label:'Lưu thay đổi',primary:true,action:async()=>{
-  const target=state.accounts.find(a=>a.name===document.getElementById('eAssignee').value);
+ openModal('Sửa task',`<div class="formgrid"><div class="field full"><label>TÊN CÔNG VIỆC</label><input id="eTitle" value="${esc(t.title)}"></div><div class="field"><label>GIAO CHO</label><select id="eAssignee">${state.accounts.filter(a=>a.role==='Sale'&&a.active).map(a=>`<option value="${a.id}" ${a.id===t.assigneeId?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div><div class="field"><label>ƯU TIÊN</label><select id="ePriority">${['Cao','Trung bình','Thấp'].map(x=>`<option ${x===t.priority?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>NHÓM VIỆC</label><select id="eGroup">${['Bám đuổi khách','Khách mới','Livestream','Ads','Xin hàng','Kiểm tra tồn','CSKH','Báo cáo','Khác'].map(x=>`<option ${x===t.group?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>DEADLINE</label><input id="eDeadline" type="datetime-local" value="${localInputFromIso(t.deadline)}"></div><div class="field full"><label>YÊU CẦU</label><textarea id="eDesc" rows="4">${esc(t.description)}</textarea></div><div class="field full"><label>CHECKLIST</label><textarea id="eChecklist" rows="4">${esc((t.checklist||[]).join('\n'))}</textarea></div></div>`,[{label:'Lưu thay đổi',primary:true,action:async()=>{
+  const target=state.accounts.find(a=>a.id===document.getElementById('eAssignee').value);
   const items=document.getElementById('eChecklist').value.split('\n').map(x=>x.trim()).filter(Boolean);
   const due=document.getElementById('eDeadline').value;
-  const payload={title:document.getElementById('eTitle').value.trim(),assigned_to:target.id,priority:priorityDb(document.getElementById('ePriority').value),deadline:due?new Date(due).toISOString():null,description:document.getElementById('eDesc').value.trim(),checklist:{items,checked:(t.checked||[]).filter(i=>i<items.length)},updated_at:new Date().toISOString()};
+  const payload={title:document.getElementById('eTitle').value.trim(),assigned_to:target.id,priority:priorityDb(document.getElementById('ePriority').value),task_group:document.getElementById('eGroup').value,deadline:due?new Date(due).toISOString():null,description:document.getElementById('eDesc').value.trim(),checklist:{items,checked:(t.checked||[]).filter(i=>i<items.length)},updated_at:new Date().toISOString()};
   const {error}=await supabaseClient.from('tasks').update(payload).eq('id',id);
   if(error)return showToast('Không cập nhật được task: '+error.message);
   await addRemoteHistory(id,'edited','Leader đã chỉnh sửa task');await syncRemoteTasks(true);closeModal();render();showToast('Đã cập nhật task')
@@ -2085,7 +2064,6 @@ document.getElementById('modalBack').onclick=e=>{if(e.target.id==='modalBack')cl
 document.getElementById('closeLightbox').onclick=()=>document.getElementById('imageLightbox').classList.remove('open')
 document.getElementById('imageLightbox').onclick=e=>{if(e.target.id==='imageLightbox')document.getElementById('imageLightbox').classList.remove('open')}
 document.addEventListener('click',e=>{const ep=document.getElementById('emojiPicker'),eb=document.getElementById('emojiBtn');if(ep&&eb&&!ep.contains(e.target)&&!eb.contains(e.target))ep.classList.remove('open')})
-window.addEventListener('storage',e=>{if(e.key===KEY){state=load();if(me())render()}})
 setInterval(async()=>{if(me()){try{await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true),syncRemoteModules(true)]);safeAutoRender()}catch(e){console.warn('poll sync',e)}}},12000)
 supabaseClient.auth.onAuthStateChange((event,sess)=>{
  if(event==='PASSWORD_RECOVERY'){setTimeout(openRecoveryModal,0);return}
