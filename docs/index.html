@@ -1186,7 +1186,52 @@ async function activateRemoteUser(user){
  if(!profile)throw new Error('Tài khoản chưa có profile. Hãy kiểm tra bảng profiles trong Supabase.');
  if(!profile.active)throw new Error('Tài khoản này đang bị khóa.');
  session={id:user.id};route=profile.role==='Leader'?'overview':'pending';
- await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true)]);subscribeTaskChanges();showApp();render()
+ await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true),syncRemoteModules(true)]);subscribeTaskChanges();showApp();render()
+}
+async function syncRemoteModules(silent=false){
+ if(!session?.id)return;
+ const accountById=()=>Object.fromEntries(state.accounts.map(a=>[a.id,a]));
+ const fetchSafe=async table=>{
+  const {data,error}=await supabaseClient.from(table).select('*');
+  if(error){console.warn('sync '+table,error.message);return null}
+  return data||[]
+ };
+ const [ann,sch,req,rep]=await Promise.all([
+  fetchSafe('announcements'),fetchSafe('work_schedules'),fetchSafe('leave_requests'),fetchSafe('report_entries')
+ ]);
+ const acct=accountById();
+ if(ann!==null)state.announcements=ann.map(r=>({
+  id:r.id,title:r.title,content:r.content,start:r.start_date||'',end:r.end_date||'',
+  priority:r.priority||'Bình thường',active:r.active!==false,
+  createdBy:acct[r.created_by]?.name||'Leader',createdById:r.created_by,
+  createdAt:r.created_at,updatedAt:r.updated_at
+ }));
+ if(sch!==null)state.schedules=sch.map(r=>({
+  id:r.id,userId:r.user_id,employee:acct[r.user_id]?.name||'',date:r.work_date,
+  shift:r.shift,start:(r.start_time||'').slice(0,5),end:(r.end_time||'').slice(0,5),
+  note:r.note||'',status:r.status||'Chờ duyệt',reviewedAt:r.reviewed_at||null,
+  reviewedBy:acct[r.reviewed_by]?.name||'',createdAt:r.created_at,updatedAt:r.updated_at
+ }));
+ if(req!==null)state.leaveRequests=req.map(r=>({
+  id:r.id,userId:r.user_id,employee:acct[r.user_id]?.name||'',type:r.type,
+  dateFrom:r.date_from,dateTo:r.date_to||r.date_from,session:r.session||'',
+  arrivalTime:(r.arrival_time||'').slice(0,5),reason:r.reason||'',status:r.status||'Chờ duyệt',
+  leaderNote:r.leader_note||'',reviewedAt:r.reviewed_at||null,
+  reviewedBy:acct[r.reviewed_by]?.name||'',createdAt:r.created_at,updatedAt:r.updated_at
+ }));
+ if(rep!==null){
+  state.reports={ads:[],live:[],zalo:[],web:[]};
+  rep.forEach(r=>{
+   const base={id:r.id,date:r.report_date,employee:r.employee_name||acct[r.employee_id]?.name||'',
+    orders:Number(r.orders||0),sales:Number(r.sales||0),products:Number(r.products||0),
+    enteredBy:acct[r.entered_by]?.name||''};
+   if(r.channel==='ads')state.reports.ads.push({...base,data:Number(r.data_count||0)});
+   if(r.channel==='live')state.reports.live.push({...base,data:Number(r.data_count||0)});
+   if(r.channel==='zalo')state.reports.zalo.push({...base,posts:Number(r.posts||0),interested:Number(r.interested||0)});
+   if(r.channel==='web')state.reports.web.push({...base,note:r.note||''});
+  })
+ }
+ save();if(!silent)safeAutoRender()
 }
 function subscribeTaskChanges(){
  if(taskChannel){try{supabaseClient.removeChannel(taskChannel)}catch(e){}}
@@ -1194,6 +1239,10 @@ function subscribeTaskChanges(){
   .on('postgres_changes',{event:'*',schema:'public',table:'tasks'},()=>syncRemoteTasks(true).then(()=>safeAutoRender()).catch(console.error))
   .on('postgres_changes',{event:'*',schema:'public',table:'task_history'},()=>syncRemoteTasks(true).then(()=>safeAutoRender()).catch(console.error))
   .on('postgres_changes',{event:'*',schema:'public',table:'messages'},()=>syncRemoteMessages(true).then(()=>safeAutoRender()).catch(console.error))
+  .on('postgres_changes',{event:'*',schema:'public',table:'announcements'},()=>syncRemoteModules(true).then(()=>safeAutoRender()).catch(console.error))
+  .on('postgres_changes',{event:'*',schema:'public',table:'work_schedules'},()=>syncRemoteModules(true).then(()=>safeAutoRender()).catch(console.error))
+  .on('postgres_changes',{event:'*',schema:'public',table:'leave_requests'},()=>syncRemoteModules(true).then(()=>safeAutoRender()).catch(console.error))
+  .on('postgres_changes',{event:'*',schema:'public',table:'report_entries'},()=>syncRemoteModules(true).then(()=>safeAutoRender()).catch(console.error))
   .subscribe()
 }
 async function bootSupabase(){
@@ -2032,7 +2081,7 @@ document.getElementById('closeLightbox').onclick=()=>document.getElementById('im
 document.getElementById('imageLightbox').onclick=e=>{if(e.target.id==='imageLightbox')document.getElementById('imageLightbox').classList.remove('open')}
 document.addEventListener('click',e=>{const ep=document.getElementById('emojiPicker'),eb=document.getElementById('emojiBtn');if(ep&&eb&&!ep.contains(e.target)&&!eb.contains(e.target))ep.classList.remove('open')})
 window.addEventListener('storage',e=>{if(e.key===KEY){state=load();if(me())render()}})
-setInterval(async()=>{if(me()){try{await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true)]);safeAutoRender()}catch(e){console.warn('poll sync',e)}}},12000)
+setInterval(async()=>{if(me()){try{await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true),syncRemoteModules(true)]);safeAutoRender()}catch(e){console.warn('poll sync',e)}}},12000)
 supabaseClient.auth.onAuthStateChange((event,sess)=>{
  if(event==='PASSWORD_RECOVERY'){setTimeout(openRecoveryModal,0);return}
  if(event==='SIGNED_OUT'){session=null;showLogin()}
