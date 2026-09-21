@@ -2029,6 +2029,15 @@ function exportDateTimeVN(v){
  return d.toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})
 }
 function reportChannelName(k){return ({ads:'Facebook Ads',live:'Livestream',zalo:'Zalo',web:'Website'})[k]||k}
+function taskOverdueForExport(t){
+ if(!t?.deadline)return false;
+ const due=new Date(t.deadline);if(Number.isNaN(due.getTime()))return false;
+ if(t.completedAt){
+  const done=new Date(t.completedAt);
+  return !Number.isNaN(done.getTime())&&done>due
+ }
+ return new Date()>due
+}
 function buildLeaderExportData(from,to,messageRows=null){
  const acct=Object.fromEntries(state.accounts.map(a=>[a.id,a]));
  const relevantTasks=(state.tasks||[]).filter(t=>[t.createdAt,t.deadline,t.startedAt,t.completedAt].some(v=>exportInRange(v,from,to)));
@@ -2080,7 +2089,7 @@ function buildLeaderExportData(from,to,messageRows=null){
   return {
    id:u.id,name:u.name,
    taskRelevant:ts.length,taskCreated:created,taskCompleted:completed,
-   taskDue:due.length,taskOverdue:due.filter(t=>t.status!=='done'&&new Date(t.deadline)<new Date()).length,
+   taskDue:due.length,taskOverdue:due.filter(taskOverdueForExport).length,
    schedules:schedules.filter(s=>s.userId===u.id).length,
    schedulesApproved:schedules.filter(s=>s.userId===u.id&&s.status==='Đã duyệt').length,
    leaveRequests:leaves.filter(r=>r.userId===u.id).length,
@@ -2097,7 +2106,7 @@ function buildLeaderExportData(from,to,messageRows=null){
   metrics:{
    taskCreated,taskDue,taskCompleted,
    taskPending:relevantTasks.filter(t=>t.status!=='done').length,
-   taskOverdue:relevantTasks.filter(t=>t.status!=='done'&&t.deadline&&new Date(t.deadline)<new Date()).length,
+   taskOverdue:relevantTasks.filter(taskOverdueForExport).length,
    schedules:schedules.length,schedulesApproved:schedules.filter(x=>x.status==='Đã duyệt').length,
    leaves:leaves.length,totalOrders,totalSales,totalProducts,messages:messages.length
   },
@@ -2129,7 +2138,7 @@ function exportPage(){
    metric('Lịch làm việc',d.metrics.schedules,'Trong kỳ')+
    metric('Lịch đã duyệt',d.metrics.schedulesApproved,'Trong kỳ')+
    metric('Đơn xin phép',d.metrics.leaves,'Có giao với kỳ chọn')+
-   metric('Tin nhắn Leader',d.metrics.messages,'Dữ liệu đang tải')+
+   metric('Tin nhắn Leader',d.metrics.messages,'Đang có trong bộ nhớ; file sẽ truy vấn lại')+
  '</div>'
 }
 async function ensureExcelJS(){
@@ -2144,8 +2153,13 @@ async function ensureExcelJS(){
   for(const src of urls){
    try{
     await new Promise((resolve,reject)=>{
+     const existing=[...document.scripts].find(x=>x.src===src);
+     if(existing){
+      if(window.ExcelJS)return resolve();
+      existing.remove()
+     }
      const s=document.createElement('script');s.src=src;s.async=true;
-     s.onload=()=>resolve();s.onerror=()=>reject(new Error('Không tải được thư viện Excel'));
+     s.onload=()=>resolve();s.onerror=()=>{s.remove();reject(new Error('Không tải được thư viện Excel'))};
      document.head.appendChild(s)
     });
     if(window.ExcelJS)return window.ExcelJS
@@ -2153,7 +2167,8 @@ async function ensureExcelJS(){
   }
   throw lastErr||new Error('Không tải được thư viện Excel')
  })();
- return window.__sevenamExcelPromise
+ try{return await window.__sevenamExcelPromise}
+ catch(err){window.__sevenamExcelPromise=null;throw err}
 }
 async function fetchExportMessages(from,to){
  const start=new Date(from+'T00:00:00'),end=new Date(to+'T23:59:59.999');
@@ -2226,7 +2241,7 @@ function addSummarySheet(wb,d){
   }
   r++
  });
- ws.getCell('F7').numFmt='#,##0 "đ"';ws.getCell('H7').numFmt='#,##0 "đ"';
+ ws.getCell('D7').numFmt='#,##0 "đ"';ws.getCell('H7').numFmt='#,##0 "đ"';
  r+=2;ws.getCell(r,1).value='TỔNG HỢP THEO KÊNH';ws.getCell(r,1).font={bold:true,size:13,color:{argb:'FF17365D'}};
  r++;const headers=['Kênh','Data','KH quan tâm','Bài đăng','Đơn','Doanh số','Sản phẩm','AOV'];
  headers.forEach((h,i)=>ws.getCell(r,i+1).value=h);styleExcelHeader(ws.getRow(r));
@@ -2235,7 +2250,7 @@ function addSummarySheet(wb,d){
   vals.forEach((v,i)=>ws.getCell(r,i+1).value=v);
   ws.getCell(r,6).numFmt='#,##0 "đ"';ws.getCell(r,8).numFmt='#,##0 "đ"'
  });
- ws.columns=[18,15,15,15,12,20,12,20].map(w=>({width:w}));
+ [18,15,15,15,12,20,12,20].forEach((w,i)=>ws.getColumn(i+1).width=w);
 }
 async function exportLeaderExcel(){
  if(!isLeader())return showToast('Chỉ Leader được xuất báo cáo');
