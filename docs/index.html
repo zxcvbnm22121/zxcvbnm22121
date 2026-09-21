@@ -74,7 +74,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
 .history{display:grid;gap:8px}.hist{display:grid;grid-template-columns:9px 1fr;gap:10px;font-size:11px;color:#5d6878}.hist i{width:8px;height:8px;border-radius:50%;background:#9aabc7;margin-top:4px}.hist b{color:var(--text)}
 .helpgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.help{padding:16px}.helpnum{width:30px;height:30px;border-radius:9px;background:var(--navy);color:white;display:grid;place-items:center;font-weight:900;font-size:12px;margin-bottom:10px}.help h3{font-size:14px;margin:0 0 6px}.help p{font-size:11px;color:var(--muted);line-height:1.6;margin:0}
 .tablewrap{overflow:auto}.table{width:100%;border-collapse:collapse}.table th{font-size:10px;color:#7b8492;text-transform:uppercase;letter-spacing:.4px;text-align:left;background:#fafbfc;padding:10px;border-bottom:1px solid var(--line)}.table td{padding:11px 10px;border-bottom:1px solid #eef0f3;font-size:12px}
-.modalback{position:fixed;inset:0;background:rgba(8,14,26,.46);z-index:100;display:none;align-items:center;justify-content:center;padding:18px}.modalback.open{display:flex}.modal{width:min(660px,100%);max-height:90vh;background:white;border-radius:18px;overflow:auto;box-shadow:0 30px 80px rgba(0,0,0,.23);animation:in .25s var(--ease)}.modalhead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}.modalhead h3{margin:0;font-size:16px}.modalbody{padding:18px}.modalfoot{padding:13px 18px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}
+.modalback{position:fixed;inset:0;background:rgba(8,14,26,.46);z-index:100;display:none;align-items:center;justify-content:center;padding:18px}.modalback.open{display:flex}.modal{width:min(660px,100%);max-height:90vh;background:white;border-radius:18px;overflow:auto;box-shadow:0 30px 80px rgba(0,0,0,.23);animation:in .25s var(--ease)}.modalhead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}.modalhead h3{margin:0;font-size:16px}.modalbody{padding:18px}.modalfoot{padding:13px 18px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px;position:sticky;bottom:0;background:#fff;z-index:2}
 .toast{position:fixed;right:22px;bottom:22px;background:#111827;color:white;padding:10px 13px;border-radius:10px;font-size:11px;z-index:200;opacity:0;transform:translateY(12px);transition:.2s}.toast.show{opacity:1;transform:none}
 .menu{display:none}
 @media(max-width:900px){.sidebar{transform:translateX(-100%);transition:.2s}.sidebar.open{transform:none}.main{margin-left:0;width:100%}.menu{display:grid}.g4,.g3,.g2,.helpgrid,.empgrid{grid-template-columns:1fr 1fr}.content{padding:18px 15px}.topbar{padding:0 15px}.loginbox{grid-template-columns:1fr}.loginbrand{display:none}}
@@ -1795,7 +1795,7 @@ function schedulePage(){
  return head('Lịch làm việc của team','Leader xem nhanh toàn bộ ca làm/nghỉ và duyệt từng đăng ký')+controls+
  teamWorkCalendar(days)+
  `<div class="sectionhead" style="margin-top:18px"><h3>Chi tiết đăng ký theo nhân viên</h3><small>Bấm từng ca để duyệt</small></div>`+
- `<div class="card schedule-table-wrap"><table class="schedule-table"><thead><tr><th>Nhân viên</th>${days.map(d=>`<th>${d.toLocaleDateString('vi-VN',{weekday:'short'})}<br>${d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</th>`).join('')}</tr></thead><tbody>${sales.map(u=>`<tr><td>${avatarHTML(u)}<b style="font-size:11px">${esc(u.name)}</b></td>${days.map(d=>{const x=scheduleFor(u.id,isoDate(d));return`<td>${x?`<div class="shift-chip ${x.status==='Đã duyệt'?'approved':x.status==='Từ chối'?'rejected':'pending'}" data-view-schedule="${x.id}"><b>${esc(x.shift)}</b><small>${String(x.shift||'').startsWith('Nghỉ')?'Nghỉ':`${esc(x.start||'--:--')}–${esc(x.end||'--:--')}`}<br>${x.status}</small></div>`:'<span class="sub">—</span>'}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`;
+ `<div class="card schedule-table-wrap"><table class="schedule-table"><thead><tr><th>Nhân viên</th>${days.map(d=>`<th>${d.toLocaleDateString('vi-VN',{weekday:'short'})}<br>${d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</th>`).join('')}</tr></thead><tbody>${sales.map(u=>`<tr><td>${avatarHTML(u)}<b style="font-size:11px">${esc(u.name)}</b></td>${days.map(d=>{const x=scheduleFor(u.id,isoDate(d));return`<td>${x?`<div class="shift-chip ${x.status==='Đã duyệt'?'approved':x.status==='Từ chối'?'rejected':'pending'}" data-view-schedule="${x.id}"><b>${esc(x.shift)}</b><small>${String(x.shift||'').startsWith('Nghỉ')?'Nghỉ':`${esc(x.start||'--:--')}–${esc(x.end||'--:--')}`}<br>${x.status}</small></div>${x.status==='Chờ duyệt'?`<div style="display:flex;gap:4px;justify-content:center;margin-top:6px"><button class="primary small" data-approve-schedule="${x.id}">✓ Duyệt</button><button class="btn small danger" data-reject-schedule="${x.id}">Từ chối</button></div>`:''}`:'<span class="sub">—</span>'}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 function openScheduleForm(date,id=null){
  let x=id?state.schedules.find(s=>s.id===id):null;
@@ -1808,14 +1808,45 @@ function openScheduleForm(date,id=null){
   <div class="field full"><label>GHI CHÚ</label><textarea id="scNote" rows="3" placeholder="VD: trực Web, trực Live, xin nghỉ...">${esc(x?.note||'')}</textarea></div>
  </div>`,[{label:'Lưu đăng ký',primary:true,action:async()=>{const ds=document.getElementById('scDate').value,shift=document.getElementById('scShift').value;if(!ds)return showToast('Chọn ngày');const payload={user_id:me().id,work_date:ds,shift,start_time:shift==='Nghỉ'?null:(document.getElementById('scStart').value||null),end_time:shift==='Nghỉ'?null:(document.getElementById('scEnd').value||null),note:document.getElementById('scNote').value.trim()||null,status:'Chờ duyệt',reviewed_at:null,reviewed_by:null,updated_at:new Date().toISOString()};let error;if(x)({error}=await supabaseClient.from('work_schedules').update(payload).eq('id',x.id));else ({error}=await supabaseClient.from('work_schedules').insert(payload));if(error)return showToast('Không lưu được lịch: '+error.message);await syncRemoteModules(true);closeModal();render();showToast('Đã đăng ký — lịch đã hiển thị trên tuần này')}}])
 }
+async function setScheduleStatus(id,status){
+ if(!isLeader())return showToast('Chỉ Leader được duyệt lịch');
+ const x=state.schedules.find(s=>s.id===id);
+ if(!x)return showToast('Không tìm thấy lịch đăng ký');
+ if(x.status!=='Chờ duyệt'){
+  await syncRemoteModules(true);render();
+  return showToast('Lịch này đã được xử lý trước đó')
+ }
+ const now=new Date().toISOString();
+ const {data,error}=await supabaseClient.from('work_schedules')
+  .update({status,reviewed_at:now,reviewed_by:me().id,updated_at:now})
+  .eq('id',id)
+  .eq('status','Chờ duyệt')
+  .select('id')
+  .maybeSingle();
+ if(error)return showToast('Không cập nhật được lịch: '+error.message);
+ if(!data){
+  await syncRemoteModules(true);render();
+  return showToast('Lịch vừa được xử lý ở nơi khác. Đã đồng bộ lại.')
+ }
+ await syncRemoteModules(true);
+ closeModal();render();
+ showToast(status==='Đã duyệt'?'Đã duyệt lịch':'Đã từ chối lịch')
+}
 function openScheduleReview(id){
  const x=state.schedules.find(s=>s.id===id);if(!x)return;
- openModal('Duyệt lịch — '+x.employee,`<div class="grid g2"><div class="card pad"><div class="sub">Ngày</div><b>${new Date(x.date+'T00:00:00').toLocaleDateString('vi-VN',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'})}</b></div><div class="card pad"><div class="sub">Ca</div><b>${esc(x.shift)}</b></div></div><div class="taskdesc" style="margin-top:12px">${String(x.shift||'').startsWith('Nghỉ')?'Đăng ký nghỉ':`${esc(x.start||'--:--')} → ${esc(x.end||'--:--')}`}<br>${esc(x.note||'Không có ghi chú')}</div>`,[
-  {label:'Từ chối',danger:true,action:async()=>{const now=new Date().toISOString();const {error}=await supabaseClient.from('work_schedules').update({status:'Từ chối',reviewed_at:now,reviewed_by:me().id,updated_at:now}).eq('id',x.id);if(error)return showToast(error.message);await syncRemoteModules(true);closeModal();render();showToast('Đã từ chối lịch')}},
-  {label:'Duyệt',primary:true,action:async()=>{const now=new Date().toISOString();const {error}=await supabaseClient.from('work_schedules').update({status:'Đã duyệt',reviewed_at:now,reviewed_by:me().id,updated_at:now}).eq('id',x.id);if(error)return showToast(error.message);await syncRemoteModules(true);closeModal();render();showToast('Đã duyệt lịch')}}
- ])
+ const pending=x.status==='Chờ duyệt';
+ openModal('Duyệt lịch — '+x.employee,`<div class="grid g2">
+  <div class="card pad"><div class="sub">Ngày</div><b>${new Date(x.date+'T00:00:00').toLocaleDateString('vi-VN',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'})}</b></div>
+  <div class="card pad"><div class="sub">Ca</div><b>${esc(x.shift)}</b></div>
+ </div>
+ <div class="taskdesc" style="margin-top:12px">${String(x.shift||'').startsWith('Nghỉ')?'Đăng ký nghỉ':`${esc(x.start||'--:--')} → ${esc(x.end||'--:--')}`}<br>${esc(x.note||'Không có ghi chú')}</div>
+ <div style="margin-top:12px"><span class="pill ${x.status==='Đã duyệt'?'green':x.status==='Từ chối'?'red':'orange'}">${esc(x.status)}</span></div>
+ ${pending?'':'<div class="sub" style="margin-top:10px">Lịch này đã được xử lý. Không cần duyệt lại.</div>'}`,
+ pending?[
+  {label:'Từ chối',danger:true,action:()=>setScheduleStatus(x.id,'Từ chối')},
+  {label:'✓ Duyệt lịch',primary:true,action:()=>setScheduleStatus(x.id,'Đã duyệt')}
+ ]:[])
 }
-
 function reportPage(){
  const tabs=[['ads','Ads theo Sale'],['live','Livestream'],['zalo','Zalo'],['web','Website'],['summary','Tổng hợp']];
  return head('Nhập báo cáo','Cấu trúc bám theo file BC-SOL-SevenAM.xlsx: Ads theo nhân viên, Live, Zalo, Web và tổng hợp tự động')+
@@ -1952,6 +1983,8 @@ function bindPage(){
  document.querySelectorAll('[data-new-schedule]').forEach(b=>b.onclick=()=>openScheduleForm(b.dataset.newSchedule))
  document.querySelectorAll('[data-edit-schedule]').forEach(b=>b.onclick=()=>openScheduleForm(null,b.dataset.editSchedule))
  document.querySelectorAll('[data-view-schedule]').forEach(b=>b.onclick=()=>openScheduleReview(b.dataset.viewSchedule))
+ document.querySelectorAll('[data-approve-schedule]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await setScheduleStatus(b.dataset.approveSchedule,'Đã duyệt')})
+ document.querySelectorAll('[data-reject-schedule]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await setScheduleStatus(b.dataset.rejectSchedule,'Từ chối')})
  document.querySelectorAll('[data-report-tab]').forEach(b=>b.onclick=()=>{reportTab=b.dataset.reportTab;reportEditId=null;render()})
  const rmth=document.getElementById('reportMonth');if(rmth)rmth.onchange=()=>{reportMonth=rmth.value;reportEditId=null;render()}
  const sr=document.getElementById('saveReport');if(sr)sr.onclick=saveReportRecord
