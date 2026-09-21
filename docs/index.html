@@ -1118,8 +1118,16 @@ function load(){
   return data
  }catch(e){return clone(seed)}
 }
-let state=load(),session=null,loginRole='Leader',route='overview',selected=new Set(),filters={q:'',employee:'',priority:''},activeChatId=null,chatSearch='',scheduleWeekOffset=0,reportTab='ads',reportMonth='2026-09',reportEditId=null,requestFilter='all',taskChannel=null,lastTaskSyncAt=null;
+let state=load(),session=null,loginRole='Leader',route='overview',selected=new Set(),filters={q:'',employee:'',priority:''},activeChatId=null,chatSearch='',scheduleWeekOffset=0,reportTab='ads',reportMonth='2026-09',reportEditId=null,requestFilter='all',taskChannel=null,lastTaskSyncAt=null,chatDrafts={};
 function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+function isChatComposing(){
+ const el=document.activeElement;
+ return route==='chat'&&el&&el.id==='chatInput';
+}
+function safeAutoRender(){
+ if(isChatComposing()){renderNav();return}
+ render()
+}
 function uid(p){return p+Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function me(){return session?state.accounts.find(a=>a.id===session.id&&a.active):null}
@@ -1183,9 +1191,9 @@ async function activateRemoteUser(user){
 function subscribeTaskChanges(){
  if(taskChannel){try{supabaseClient.removeChannel(taskChannel)}catch(e){}}
  taskChannel=supabaseClient.channel('sevenam-task-sync')
-  .on('postgres_changes',{event:'*',schema:'public',table:'tasks'},()=>syncRemoteTasks(true).then(()=>render()).catch(console.error))
-  .on('postgres_changes',{event:'*',schema:'public',table:'task_history'},()=>syncRemoteTasks(true).then(()=>render()).catch(console.error))
-  .on('postgres_changes',{event:'*',schema:'public',table:'messages'},()=>syncRemoteMessages(true).then(()=>render()).catch(console.error))
+  .on('postgres_changes',{event:'*',schema:'public',table:'tasks'},()=>syncRemoteTasks(true).then(()=>safeAutoRender()).catch(console.error))
+  .on('postgres_changes',{event:'*',schema:'public',table:'task_history'},()=>syncRemoteTasks(true).then(()=>safeAutoRender()).catch(console.error))
+  .on('postgres_changes',{event:'*',schema:'public',table:'messages'},()=>syncRemoteMessages(true).then(()=>safeAutoRender()).catch(console.error))
   .subscribe()
 }
 async function bootSupabase(){
@@ -1266,7 +1274,7 @@ function insertChatFormat(type){
  const mark=type==='bold'?'**':'*';
  const selected=txt.slice(start,end);
  el.value=txt.slice(0,start)+mark+selected+mark+txt.slice(end);
- const pos=end+mark.length*2;el.focus();el.setSelectionRange(pos,pos)
+ const pos=end+mark.length*2;if(activeChatId)chatDrafts[activeChatId]=el.value;el.focus();el.setSelectionRange(pos,pos)
 }
 
 
@@ -1539,7 +1547,7 @@ function chatPage(){
         <span class="chat-format-help">B = đậm · I = nghiêng · Enter gửi</span>
       </div>
       <div id="chatImagePreview"></div>
-      <div class="chat-compose"><textarea id="chatInput" rows="1" placeholder="Nhập tin nhắn..."></textarea><button class="primary" id="sendMessage">➤ Gửi</button></div>
+      <div class="chat-compose"><textarea id="chatInput" rows="1" placeholder="Nhập tin nhắn...">${esc(chatDrafts[active.id]||'')}</textarea><button class="primary" id="sendMessage">➤ Gửi</button></div>
     </div>
    `:`<div class="chat-empty"><div><b>Chọn một nhân viên</b><br><span class="sub">Danh sách hội thoại nằm bên trái.</span></div></div>`}</section>
  </div>`;
@@ -1598,7 +1606,7 @@ async function sendMessage(){
    sender_id:me().id,receiver_id:activeChatId,content:text||null,image_path:imagePath||null
   });
   if(error)throw error;
-  pendingChatImage='';if(input)input.value='';
+  pendingChatImage='';if(input)input.value='';if(activeChatId)delete chatDrafts[activeChatId];
   await syncRemoteMessages(true);render();
   setTimeout(()=>{const box=document.getElementById('messages');if(box)box.scrollTop=box.scrollHeight},0)
  }catch(err){
@@ -1849,17 +1857,20 @@ function bindPage(){
  document.querySelectorAll('[data-request-filter]').forEach(b=>b.onclick=()=>{requestFilter=b.dataset.requestFilter;render()})
 
  const cs=document.getElementById('chatSearch');if(cs)cs.oninput=()=>{chatSearch=cs.value;render()}
- document.querySelectorAll('[data-chat-user]').forEach(b=>b.onclick=()=>{activeChatId=b.dataset.chatUser;markConversationRead(activeChatId);render()})
+ document.querySelectorAll('[data-chat-user]').forEach(b=>b.onclick=()=>{const input=document.getElementById('chatInput');if(input&&activeChatId)chatDrafts[activeChatId]=input.value;activeChatId=b.dataset.chatUser;markConversationRead(activeChatId);render()})
  document.querySelectorAll('[data-message-user]').forEach(b=>b.onclick=()=>{activeChatId=b.dataset.messageUser;go('chat')})
  document.querySelectorAll('[data-view-profile]').forEach(b=>b.onclick=()=>openPublicProfile(b.dataset.viewProfile))
  const send=document.getElementById('sendMessage');if(send)send.onclick=sendMessage
- const ci=document.getElementById('chatInput');if(ci)ci.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}}
+ const ci=document.getElementById('chatInput');if(ci){
+  ci.oninput=()=>{if(activeChatId)chatDrafts[activeChatId]=ci.value};
+  ci.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}}
+ }
  const bb=document.getElementById('boldBtn');if(bb)bb.onclick=()=>insertChatFormat('bold')
  const ib=document.getElementById('italicBtn');if(ib)ib.onclick=()=>insertChatFormat('italic')
  const imgb=document.getElementById('imageBtn');if(imgb)imgb.onclick=()=>document.getElementById('chatImageInput').click()
  const imginp=document.getElementById('chatImageInput');if(imginp)imginp.onchange=async()=>{try{pendingChatImage=await resizeChatImage(imginp.files[0]);renderChatImagePreview()}catch(err){showToast(err.message)}}
  const eb=document.getElementById('emojiBtn'),ep=document.getElementById('emojiPicker');
- if(eb&&ep){eb.onclick=e=>{e.stopPropagation();ep.classList.toggle('open')};ep.querySelectorAll('[data-emoji]').forEach(b=>b.onclick=()=>{const input=document.getElementById('chatInput');if(input){const pos=input.selectionStart||input.value.length;input.value=input.value.slice(0,pos)+b.dataset.emoji+input.value.slice(pos);input.focus();input.setSelectionRange(pos+b.dataset.emoji.length,pos+b.dataset.emoji.length)}ep.classList.remove('open')})}
+ if(eb&&ep){eb.onclick=e=>{e.stopPropagation();ep.classList.toggle('open')};ep.querySelectorAll('[data-emoji]').forEach(b=>b.onclick=()=>{const input=document.getElementById('chatInput');if(input){const pos=input.selectionStart||input.value.length;input.value=input.value.slice(0,pos)+b.dataset.emoji+input.value.slice(pos);if(activeChatId)chatDrafts[activeChatId]=input.value;input.focus();input.setSelectionRange(pos+b.dataset.emoji.length,pos+b.dataset.emoji.length)}ep.classList.remove('open')})}
  renderChatImagePreview()
  document.querySelectorAll('[data-full-image]').forEach(img=>img.onclick=()=>{document.getElementById('lightboxImg').src=img.dataset.fullImage;document.getElementById('imageLightbox').classList.add('open')})
  const choose=document.getElementById('chooseAvatar');if(choose)choose.onclick=()=>document.getElementById('avatarFile').click()
@@ -2021,7 +2032,7 @@ document.getElementById('closeLightbox').onclick=()=>document.getElementById('im
 document.getElementById('imageLightbox').onclick=e=>{if(e.target.id==='imageLightbox')document.getElementById('imageLightbox').classList.remove('open')}
 document.addEventListener('click',e=>{const ep=document.getElementById('emojiPicker'),eb=document.getElementById('emojiBtn');if(ep&&eb&&!ep.contains(e.target)&&!eb.contains(e.target))ep.classList.remove('open')})
 window.addEventListener('storage',e=>{if(e.key===KEY){state=load();if(me())render()}})
-setInterval(async()=>{if(me()){try{await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true)]);render()}catch(e){console.warn('poll sync',e)}}},12000)
+setInterval(async()=>{if(me()){try{await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true)]);safeAutoRender()}catch(e){console.warn('poll sync',e)}}},12000)
 supabaseClient.auth.onAuthStateChange((event,sess)=>{
  if(event==='PASSWORD_RECOVERY'){setTimeout(openRecoveryModal,0);return}
  if(event==='SIGNED_OUT'){session=null;showLogin()}
