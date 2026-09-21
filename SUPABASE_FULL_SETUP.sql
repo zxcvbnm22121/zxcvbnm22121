@@ -648,8 +648,9 @@ using (
 -- ============================================================
 -- 10. REALTIME
 -- ============================================================
-do $$
+do $
 begin
+  begin alter publication supabase_realtime add table public.profiles; exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table public.tasks; exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table public.task_history; exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table public.messages; exception when duplicate_object then null; end;
