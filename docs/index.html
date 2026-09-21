@@ -2005,6 +2005,336 @@ async function saveReportRecord(){
  if(error)return showToast('Không lưu được báo cáo: '+error.message);
  reportEditId=null;syncRemoteModules(true).then(()=>render());showToast('Đã lưu báo cáo')
 }
+
+function exportDateKey(v){
+ if(!v)return '';
+ const s=String(v);
+ if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+ const d=new Date(v);if(Number.isNaN(d.getTime()))return s.slice(0,10);
+ const z=n=>String(n).padStart(2,'0');
+ return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate())
+}
+function exportInRange(v,from,to){const k=exportDateKey(v);return !!k&&k>=from&&k<=to}
+function exportOverlap(start,end,from,to){
+ const a=exportDateKey(start)||exportDateKey(end),b=exportDateKey(end)||exportDateKey(start);
+ return !!a&&!!b&&a<=to&&b>=from
+}
+function exportDateVN(v){
+ const k=exportDateKey(v);if(!k)return '';
+ const p=k.split('-');return p[2]+'/'+p[1]+'/'+p[0]
+}
+function exportDateTimeVN(v){
+ if(!v)return '';
+ const d=new Date(v);if(Number.isNaN(d.getTime()))return String(v);
+ return d.toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})
+}
+function reportChannelName(k){return ({ads:'Facebook Ads',live:'Livestream',zalo:'Zalo',web:'Website'})[k]||k}
+function buildLeaderExportData(from,to,messageRows=null){
+ const acct=Object.fromEntries(state.accounts.map(a=>[a.id,a]));
+ const relevantTasks=(state.tasks||[]).filter(t=>[t.createdAt,t.deadline,t.startedAt,t.completedAt].some(v=>exportInRange(v,from,to)));
+ const taskHistory=[];
+ (state.tasks||[]).forEach(t=>(t.history||[]).forEach(h=>{
+  if(exportInRange(h.time,from,to))taskHistory.push({
+   time:h.time,taskId:t.id,taskTitle:t.title,assignee:t.assignee,by:h.by,text:h.text
+  })
+ }));
+ const schedules=(state.schedules||[]).filter(x=>x.date>=from&&x.date<=to);
+ const leaves=(state.leaveRequests||[]).filter(x=>exportOverlap(x.dateFrom,x.dateTo,from,to));
+ const reports=[];
+ Object.entries(state.reports||{}).forEach(([channel,rows])=>(rows||[]).forEach(r=>{
+  if(r.date>=from&&r.date<=to)reports.push({...r,channel})
+ }));
+ let messages=messageRows||state.messages||[];
+ messages=messages.filter(x=>exportInRange(x.createdAt||x.created_at,from,to)).map(x=>({
+  id:x.id,
+  from:x.from||x.sender_id,
+  to:x.to||x.receiver_id,
+  text:x.text??x.content??'',
+  imagePath:x.imagePath??x.image_path??'',
+  createdAt:x.createdAt||x.created_at,
+  readAt:x.readAt||x.read_at||null
+ }));
+ const announcements=(state.announcements||[]).filter(x=>{
+  if(x.start||x.end)return exportOverlap(x.start,x.end,from,to);
+  return exportInRange(x.createdAt,from,to)
+ });
+ const employees=(state.accounts||[]).slice().sort((a,b)=>a.role.localeCompare(b.role)||a.name.localeCompare(b.name,'vi'));
+ const sales=employees.filter(a=>a.role==='Sale');
+ const channelSummary=['ads','live','zalo','web'].map(k=>{
+  const a=reports.filter(x=>x.channel===k);
+  const orders=sumBy(a,'orders'),salesValue=sumBy(a,'sales'),products=sumBy(a,'products');
+  return {
+   channel:k,name:reportChannelName(k),orders,sales:salesValue,products,
+   data:k==='ads'||k==='live'?sumBy(a,'data'):0,
+   interested:k==='zalo'?sumBy(a,'interested'):0,
+   posts:k==='zalo'?sumBy(a,'posts'):0,
+   aov:orders?salesValue/orders:0
+  }
+ });
+ const employeeSummary=sales.map(u=>{
+  const ts=relevantTasks.filter(t=>t.assigneeId===u.id);
+  const created=(state.tasks||[]).filter(t=>t.assigneeId===u.id&&exportInRange(t.createdAt,from,to)).length;
+  const completed=(state.tasks||[]).filter(t=>t.assigneeId===u.id&&exportInRange(t.completedAt,from,to)).length;
+  const due=(state.tasks||[]).filter(t=>t.assigneeId===u.id&&exportInRange(t.deadline,from,to));
+  const rr=reports.filter(r=>(r.employee||'')===u.name);
+  return {
+   id:u.id,name:u.name,
+   taskRelevant:ts.length,taskCreated:created,taskCompleted:completed,
+   taskDue:due.length,taskOverdue:due.filter(t=>t.status!=='done'&&new Date(t.deadline)<new Date()).length,
+   schedules:schedules.filter(s=>s.userId===u.id).length,
+   schedulesApproved:schedules.filter(s=>s.userId===u.id&&s.status==='Đã duyệt').length,
+   leaveRequests:leaves.filter(r=>r.userId===u.id).length,
+   orders:sumBy(rr,'orders'),sales:sumBy(rr,'sales')
+  }
+ });
+ const taskCreated=(state.tasks||[]).filter(t=>exportInRange(t.createdAt,from,to)).length;
+ const taskDue=(state.tasks||[]).filter(t=>exportInRange(t.deadline,from,to)).length;
+ const taskCompleted=(state.tasks||[]).filter(t=>exportInRange(t.completedAt,from,to)).length;
+ const totalOrders=sumBy(reports,'orders'),totalSales=sumBy(reports,'sales'),totalProducts=sumBy(reports,'products');
+ return {
+  from,to,relevantTasks,taskHistory,schedules,leaves,reports,messages,announcements,employees,
+  channelSummary,employeeSummary,
+  metrics:{
+   taskCreated,taskDue,taskCompleted,
+   taskPending:relevantTasks.filter(t=>t.status!=='done').length,
+   taskOverdue:relevantTasks.filter(t=>t.status!=='done'&&t.deadline&&new Date(t.deadline)<new Date()).length,
+   schedules:schedules.length,schedulesApproved:schedules.filter(x=>x.status==='Đã duyệt').length,
+   leaves:leaves.length,totalOrders,totalSales,totalProducts,messages:messages.length
+  },
+  acct
+ }
+}
+function exportPage(){
+ if(!isLeader())return '';
+ const d=buildLeaderExportData(exportFrom,exportTo);
+ return head('Xuất báo cáo Excel','Xuất dữ liệu quản trị của Leader theo một ngày hoặc khoảng ngày đã chọn')+
+ '<div class="card pad" style="max-width:980px;margin-bottom:15px">'+
+  '<div class="formgrid">'+
+   '<div class="field"><label>TỪ NGÀY</label><input id="exportFrom" type="date" value="'+esc(exportFrom)+'"></div>'+
+   '<div class="field"><label>ĐẾN NGÀY</label><input id="exportTo" type="date" value="'+esc(exportTo)+'"></div>'+
+  '</div>'+
+  '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:8px">'+
+   '<button class="btn" id="exportTodayBtn">Hôm nay</button>'+
+   '<button class="primary" id="exportExcelBtn">⇩ Xuất toàn bộ Excel</button>'+
+  '</div>'+
+  '<div class="profile-hint" style="margin-top:12px">File gồm: Tổng hợp, Theo nhân viên, Task, Lịch sử Task, Lịch làm việc, Xin phép, Báo cáo kênh, Tin nhắn Leader, Thông báo và Nhân viên. Tin nhắn chỉ gồm các cuộc hội thoại mà tài khoản Leader có quyền truy cập.</div>'+
+ '</div>'+
+ '<div class="grid g4">'+
+   metric('Task phát sinh',d.metrics.taskCreated,'Theo ngày tạo')+
+   metric('Task hoàn thành',d.metrics.taskCompleted,'Hoàn thành trong kỳ')+
+   metric('Đơn bán',num(d.metrics.totalOrders),'Tất cả kênh')+
+   metric('Doanh số',money(d.metrics.totalSales),'Tất cả kênh')+
+ '</div>'+
+ '<div class="grid g4" style="margin-top:14px">'+
+   metric('Lịch làm việc',d.metrics.schedules,'Trong kỳ')+
+   metric('Lịch đã duyệt',d.metrics.schedulesApproved,'Trong kỳ')+
+   metric('Đơn xin phép',d.metrics.leaves,'Có giao với kỳ chọn')+
+   metric('Tin nhắn Leader',d.metrics.messages,'Dữ liệu đang tải')+
+ '</div>'
+}
+async function ensureExcelJS(){
+ if(window.ExcelJS)return window.ExcelJS;
+ if(window.__sevenamExcelPromise)return window.__sevenamExcelPromise;
+ const urls=[
+  'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js',
+  'https://unpkg.com/exceljs@4.4.0/dist/exceljs.min.js'
+ ];
+ window.__sevenamExcelPromise=(async()=>{
+  let lastErr;
+  for(const src of urls){
+   try{
+    await new Promise((resolve,reject)=>{
+     const s=document.createElement('script');s.src=src;s.async=true;
+     s.onload=()=>resolve();s.onerror=()=>reject(new Error('Không tải được thư viện Excel'));
+     document.head.appendChild(s)
+    });
+    if(window.ExcelJS)return window.ExcelJS
+   }catch(e){lastErr=e}
+  }
+  throw lastErr||new Error('Không tải được thư viện Excel')
+ })();
+ return window.__sevenamExcelPromise
+}
+async function fetchExportMessages(from,to){
+ const start=new Date(from+'T00:00:00'),end=new Date(to+'T23:59:59.999');
+ let out=[],offset=0,pageSize=1000;
+ while(true){
+  const {data,error}=await supabaseClient.from('messages').select('*')
+   .gte('created_at',start.toISOString()).lte('created_at',end.toISOString())
+   .order('created_at',{ascending:true}).range(offset,offset+pageSize-1);
+  if(error)throw error;
+  const rows=data||[];out.push(...rows);
+  if(rows.length<pageSize)break;offset+=pageSize
+ }
+ return out
+}
+function styleExcelHeader(row){
+ row.height=24;
+ row.eachCell(cell=>{
+  cell.font={bold:true,color:{argb:'FFFFFFFF'}};
+  cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF17365D'}};
+  cell.alignment={vertical:'middle',horizontal:'center',wrapText:true};
+  cell.border={bottom:{style:'thin',color:{argb:'FF9EADBA'}}}
+ })
+}
+function addExcelTableSheet(wb,name,columns,rows){
+ const ws=wb.addWorksheet(name,{views:[{state:'frozen',ySplit:1}]});
+ ws.columns=columns.map(c=>({header:c.header,key:c.key,width:c.width||16}));
+ rows.forEach(r=>ws.addRow(r));
+ styleExcelHeader(ws.getRow(1));
+ if(columns.length)ws.autoFilter={from:{row:1,column:1},to:{row:1,column:columns.length}};
+ columns.forEach((c,i)=>{
+  const col=ws.getColumn(i+1);
+  if(c.numFmt)col.numFmt=c.numFmt;
+  col.alignment={vertical:'top',wrapText:!!c.wrap}
+ });
+ ws.eachRow((row,n)=>{
+  if(n>1){
+   row.alignment={vertical:'top'};
+   if(n%2===0)row.eachCell(cell=>cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF7F9FC'}})
+  }
+ });
+ if(rows.length===0){
+  ws.addRow(['Không có dữ liệu trong khoảng ngày đã chọn']);
+  ws.mergeCells(2,1,2,Math.max(1,columns.length));
+  ws.getCell(2,1).font={italic:true,color:{argb:'FF6B7280'}}
+ }
+ return ws
+}
+function addSummarySheet(wb,d){
+ const ws=wb.addWorksheet('Tổng hợp',{views:[{state:'frozen',ySplit:5}]});
+ ws.mergeCells('A1:H1');ws.getCell('A1').value='SEVEN.AM — BÁO CÁO SALE ONLINE';
+ ws.getCell('A1').font={bold:true,size:18,color:{argb:'FFFFFFFF'}};
+ ws.getCell('A1').fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF17365D'}};
+ ws.getCell('A1').alignment={horizontal:'center',vertical:'middle'};ws.getRow(1).height=32;
+ ws.getCell('A3').value='Khoảng báo cáo';ws.getCell('B3').value=exportDateVN(d.from)+' → '+exportDateVN(d.to);
+ ws.getCell('D3').value='Xuất bởi';ws.getCell('E3').value=me().name;
+ ws.getCell('G3').value='Thời điểm xuất';ws.getCell('H3').value=exportDateTimeVN(new Date());
+ ['A3','D3','G3'].forEach(a=>ws.getCell(a).font={bold:true,color:{argb:'FF17365D'}});
+ const kpis=[
+  ['Task phát sinh',d.metrics.taskCreated,'Task đến hạn',d.metrics.taskDue,'Task hoàn thành',d.metrics.taskCompleted,'Task quá hạn',d.metrics.taskOverdue],
+  ['Lịch làm việc',d.metrics.schedules,'Lịch đã duyệt',d.metrics.schedulesApproved,'Đơn xin phép',d.metrics.leaves,'Tin nhắn Leader',d.metrics.messages],
+  ['Tổng đơn',d.metrics.totalOrders,'Doanh số',d.metrics.totalSales,'Sản phẩm',d.metrics.totalProducts,'AOV',d.metrics.totalOrders?d.metrics.totalSales/d.metrics.totalOrders:0]
+ ];
+ let r=5;
+ kpis.forEach(line=>{
+  for(let i=0;i<4;i++){
+   const c=i*2+1;ws.getCell(r,c).value=line[i*2];ws.getCell(r,c+1).value=line[i*2+1];
+   ws.getCell(r,c).font={bold:true,color:{argb:'FF44546A'}};
+   ws.getCell(r,c+1).font={bold:true,size:13,color:{argb:'FF17365D'}};
+   ws.getCell(r,c).fill=ws.getCell(r,c+1).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFEAF2F8'}}
+  }
+  r++
+ });
+ ws.getCell('F7').numFmt='#,##0 "đ"';ws.getCell('H7').numFmt='#,##0 "đ"';
+ r+=2;ws.getCell(r,1).value='TỔNG HỢP THEO KÊNH';ws.getCell(r,1).font={bold:true,size:13,color:{argb:'FF17365D'}};
+ r++;const headers=['Kênh','Data','KH quan tâm','Bài đăng','Đơn','Doanh số','Sản phẩm','AOV'];
+ headers.forEach((h,i)=>ws.getCell(r,i+1).value=h);styleExcelHeader(ws.getRow(r));
+ d.channelSummary.forEach(x=>{
+  r++;const vals=[x.name,x.data,x.interested,x.posts,x.orders,x.sales,x.products,x.aov];
+  vals.forEach((v,i)=>ws.getCell(r,i+1).value=v);
+  ws.getCell(r,6).numFmt='#,##0 "đ"';ws.getCell(r,8).numFmt='#,##0 "đ"'
+ });
+ ws.columns=[18,15,15,15,12,20,12,20].map(w=>({width:w}));
+}
+async function exportLeaderExcel(){
+ if(!isLeader())return showToast('Chỉ Leader được xuất báo cáo');
+ if(exportBusy)return;
+ const from=document.getElementById('exportFrom')?.value||exportFrom;
+ const to=document.getElementById('exportTo')?.value||exportTo;
+ if(!from||!to)return showToast('Chọn đầy đủ Từ ngày và Đến ngày');
+ if(to<from)return showToast('Đến ngày phải bằng hoặc sau Từ ngày');
+ exportFrom=from;exportTo=to;exportBusy=true;
+ const btn=document.getElementById('exportExcelBtn');if(btn){btn.disabled=true;btn.textContent='Đang tạo Excel...'}
+ try{
+  await syncProfiles();
+  const [, , ,messageRows]=await Promise.all([
+   syncRemoteTasks(true),syncRemoteModules(true),ensureExcelJS(),fetchExportMessages(from,to)
+  ]);
+  const d=buildLeaderExportData(from,to,messageRows);
+  const ExcelJS=window.ExcelJS,wb=new ExcelJS.Workbook();
+  wb.creator='Seven.AM SOL';wb.company='Seven.AM';wb.subject='Báo cáo Sale Online';wb.created=new Date();
+  addSummarySheet(wb,d);
+  addExcelTableSheet(wb,'Theo nhân viên',[
+   {header:'Nhân viên',key:'name',width:22},{header:'Task liên quan',key:'taskRelevant',width:14},
+   {header:'Task phát sinh',key:'taskCreated',width:14},{header:'Hoàn thành',key:'taskCompleted',width:12},
+   {header:'Đến hạn',key:'taskDue',width:11},{header:'Quá hạn',key:'taskOverdue',width:11},
+   {header:'Lịch',key:'schedules',width:10},{header:'Lịch duyệt',key:'schedulesApproved',width:12},
+   {header:'Xin phép',key:'leaveRequests',width:10},{header:'Đơn bán',key:'orders',width:10},
+   {header:'Doanh số',key:'sales',width:18,numFmt:'#,##0 "đ"'}
+  ],d.employeeSummary);
+  addExcelTableSheet(wb,'Task',[
+   {header:'ID',key:'id',width:38},{header:'Task',key:'title',width:34,wrap:true},{header:'Nhóm',key:'group',width:18},
+   {header:'Nhân viên',key:'assignee',width:20},{header:'Ưu tiên',key:'priority',width:12},{header:'Trạng thái',key:'statusText',width:14},
+   {header:'Đã đọc',key:'readText',width:10},{header:'Ngày tạo',key:'created',width:18},{header:'Deadline',key:'deadlineText',width:18},
+   {header:'Bắt đầu',key:'started',width:18},{header:'Hoàn thành',key:'completed',width:18},
+   {header:'Checklist',key:'checklistText',width:35,wrap:true},{header:'Kết quả',key:'result',width:35,wrap:true},{header:'Mô tả',key:'description',width:45,wrap:true}
+  ],d.relevantTasks.map(t=>({
+   id:t.id,title:t.title,group:t.group||'',assignee:t.assignee,priority:t.priority,
+   statusText:t.status==='done'?'Hoàn thành':t.status==='doing'?'Đang làm':t.read?'Đã đọc':'Chưa đọc',
+   readText:t.read?'Có':'Không',created:exportDateTimeVN(t.createdAt),deadlineText:exportDateTimeVN(t.deadline),
+   started:exportDateTimeVN(t.startedAt),completed:exportDateTimeVN(t.completedAt),
+   checklistText:(t.checklist||[]).map((x,i)=>(t.checked||[]).includes(i)?'✓ '+x:'□ '+x).join('\n'),
+   result:t.result||'',description:t.description||''
+  })));
+  addExcelTableSheet(wb,'Lịch sử Task',[
+   {header:'Thời gian',key:'timeText',width:20},{header:'Task ID',key:'taskId',width:38},
+   {header:'Task',key:'taskTitle',width:35,wrap:true},{header:'Nhân viên',key:'assignee',width:20},
+   {header:'Người thao tác',key:'by',width:20},{header:'Nội dung',key:'text',width:50,wrap:true}
+  ],d.taskHistory.sort((a,b)=>new Date(a.time)-new Date(b.time)).map(x=>({...x,timeText:exportDateTimeVN(x.time)})));
+  addExcelTableSheet(wb,'Lịch làm việc',[
+   {header:'Ngày',key:'dateText',width:14},{header:'Nhân viên',key:'employee',width:20},{header:'Ca',key:'shift',width:18},
+   {header:'Bắt đầu',key:'start',width:10},{header:'Kết thúc',key:'end',width:10},{header:'Ghi chú',key:'note',width:35,wrap:true},
+   {header:'Trạng thái',key:'status',width:14},{header:'Duyệt bởi',key:'reviewedBy',width:20},{header:'Duyệt lúc',key:'reviewedAtText',width:20}
+  ],d.schedules.map(x=>({...x,dateText:exportDateVN(x.date),reviewedAtText:exportDateTimeVN(x.reviewedAt)})));
+  addExcelTableSheet(wb,'Xin phép',[
+   {header:'Loại',key:'type',width:14},{header:'Nhân viên',key:'employee',width:20},{header:'Từ ngày',key:'fromText',width:14},
+   {header:'Đến ngày',key:'toText',width:14},{header:'Phạm vi',key:'session',width:16},{header:'Giờ có mặt',key:'arrivalTime',width:12},
+   {header:'Lý do',key:'reason',width:40,wrap:true},{header:'Trạng thái',key:'status',width:14},
+   {header:'Phản hồi Leader',key:'leaderNote',width:35,wrap:true},{header:'Duyệt bởi',key:'reviewedBy',width:20},{header:'Duyệt lúc',key:'reviewedText',width:20}
+  ],d.leaves.map(x=>({...x,fromText:exportDateVN(x.dateFrom),toText:exportDateVN(x.dateTo),reviewedText:exportDateTimeVN(x.reviewedAt)})));
+  addExcelTableSheet(wb,'Báo cáo kênh',[
+   {header:'Ngày',key:'dateText',width:14},{header:'Kênh',key:'channelText',width:16},{header:'Nhân viên',key:'employee',width:20},
+   {header:'Data',key:'data',width:12},{header:'Bài đăng',key:'posts',width:12},{header:'KH quan tâm',key:'interested',width:14},
+   {header:'Đơn',key:'orders',width:10},{header:'Doanh số',key:'sales',width:18,numFmt:'#,##0 "đ"'},
+   {header:'Sản phẩm',key:'products',width:12},{header:'AOV',key:'aov',width:18,numFmt:'#,##0 "đ"'},{header:'Ghi chú',key:'note',width:35,wrap:true}
+  ],d.reports.sort((a,b)=>a.date.localeCompare(b.date)).map(x=>({
+   ...x,dateText:exportDateVN(x.date),channelText:reportChannelName(x.channel),
+   data:Number(x.data||0),posts:Number(x.posts||0),interested:Number(x.interested||0),
+   aov:Number(x.orders||0)?Number(x.sales||0)/Number(x.orders||0):0
+  })));
+  addExcelTableSheet(wb,'Tin nhắn Leader',[
+   {header:'Thời gian',key:'timeText',width:20},{header:'Người gửi',key:'fromName',width:22},{header:'Người nhận',key:'toName',width:22},
+   {header:'Nội dung',key:'text',width:55,wrap:true},{header:'Có ảnh',key:'hasImage',width:10},{header:'Đã đọc lúc',key:'readText',width:20}
+  ],d.messages.map(x=>({
+   timeText:exportDateTimeVN(x.createdAt),fromName:d.acct[x.from]?.name||x.from,toName:d.acct[x.to]?.name||x.to,
+   text:x.text||'',hasImage:x.imagePath?'Có':'Không',readText:exportDateTimeVN(x.readAt)
+  })));
+  addExcelTableSheet(wb,'Thông báo',[
+   {header:'Tiêu đề',key:'title',width:35,wrap:true},{header:'Nội dung',key:'content',width:55,wrap:true},
+   {header:'Bắt đầu',key:'startText',width:14},{header:'Kết thúc',key:'endText',width:14},{header:'Mức độ',key:'priority',width:14},
+   {header:'Hiển thị',key:'activeText',width:12},{header:'Người đăng',key:'createdBy',width:20},{header:'Ngày tạo',key:'createdText',width:20}
+  ],d.announcements.map(x=>({...x,startText:exportDateVN(x.start),endText:exportDateVN(x.end),activeText:x.active===false?'Ẩn':'Hiển thị',createdText:exportDateTimeVN(x.createdAt)})));
+  addExcelTableSheet(wb,'Nhân viên',[
+   {header:'Họ tên',key:'name',width:24},{header:'Vai trò',key:'role',width:14},{header:'Trạng thái',key:'activeText',width:14},
+   {header:'Chức danh',key:'title',width:22},{header:'Điện thoại',key:'phone',width:16},{header:'Zalo',key:'zalo',width:18},{header:'Email',key:'email',width:30}
+  ],d.employees.map(x=>({...x,activeText:x.active?'Hoạt động':'Đã khóa'})));
+  const buffer=await wb.xlsx.writeBuffer();
+  const blob=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  const rangeName=from===to?from:(from+'_den_'+to);
+  a.href=url;a.download='SevenAM_SOL_BaoCao_'+rangeName+'.xlsx';document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+  showToast('Đã xuất file Excel '+exportDateVN(from)+(from===to?'':' → '+exportDateVN(to)))
+ }catch(err){
+  console.error('export excel',err);
+  showToast('Không xuất được Excel: '+(err?.message||err))
+ }finally{
+  exportBusy=false;
+  const b=document.getElementById('exportExcelBtn');if(b){b.disabled=false;b.textContent='⇩ Xuất toàn bộ Excel'}
+ }
+}
+
 function helpPage(){
  const leader=isLeader();
  const steps=leader?[
@@ -2013,7 +2343,7 @@ function helpPage(){
   ['3','Theo dõi chưa hoàn thành','Mục “Chưa hoàn thành” có badge số. Quá hạn sẽ tự đưa lên trên và tô đỏ.'],
   ['4','Kiểm tra đang làm','Khi Sale bấm “Bắt đầu làm”, task tự chuyển sang “Đang làm”.'],
   ['5','Kiểm tra kết quả','Khi Sale hoàn thành đủ checklist và nhập kết quả, task chuyển sang “Hoàn thành”.'],
-  ['6','Thông báo chương trình','Đăng nội dung ngay trên Trang chủ để toàn bộ Sale nhìn thấy khi vào làm việc.'],['7','Xin phép','Duyệt đơn nghỉ phép hoặc đến muộn; đơn nghỉ được duyệt sẽ tự cập nhật vào lịch.'],['8','Lịch làm việc','Sau khi Sale đăng ký, ca sẽ hiện ngay trên lịch tuần; Leader xem toàn team và duyệt từng ca.'],['9','Báo cáo','Nhập số Ads, Live, Zalo, Web theo đúng cấu trúc file Excel; phần Tổng hợp tự tính.'],['10','Tin nhắn & hồ sơ','Badge ở “Tin nhắn” là số chat chưa đọc. Mỗi người có thể tự cập nhật avatar và thông tin liên hệ.']
+  ['6','Thông báo chương trình','Đăng nội dung ngay trên Trang chủ để toàn bộ Sale nhìn thấy khi vào làm việc.'],['7','Xin phép','Duyệt đơn nghỉ phép hoặc đến muộn; đơn nghỉ được duyệt sẽ tự cập nhật vào lịch.'],['8','Lịch làm việc','Sau khi Sale đăng ký, ca sẽ hiện ngay trên lịch tuần; Leader xem toàn team và duyệt từng ca.'],['9','Báo cáo','Nhập số Ads, Live, Zalo, Web theo đúng cấu trúc file Excel; phần Tổng hợp tự tính.'],['10','Tin nhắn & hồ sơ','Badge ở “Tin nhắn” là số chat chưa đọc. Mỗi người có thể tự cập nhật avatar và thông tin liên hệ.'],['11','Xuất Excel','Vào “Xuất Excel”, chọn Từ ngày – Đến ngày rồi xuất một file tổng hợp toàn bộ dữ liệu quản trị.']
  ]:[
   ['1','Mở việc chưa đọc','Badge đỏ cho biết bạn còn bao nhiêu task chưa xác nhận. Hãy đọc task mới trước.'],
   ['2','Xác nhận đã đọc','Mở task mới để hệ thống ghi nhận bạn đã nhận việc.'],
@@ -2085,6 +2415,10 @@ function bindPage(){
  document.querySelectorAll('[data-reject-schedule]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await setScheduleStatus(b.dataset.rejectSchedule,'Từ chối')})
  document.querySelectorAll('[data-report-tab]').forEach(b=>b.onclick=()=>{reportTab=b.dataset.reportTab;reportEditId=null;render()})
  const rmth=document.getElementById('reportMonth');if(rmth)rmth.onchange=()=>{reportMonth=rmth.value;reportEditId=null;render()}
+ const exFrom=document.getElementById('exportFrom');if(exFrom)exFrom.onchange=()=>{exportFrom=exFrom.value;safeAutoRender()}
+ const exTo=document.getElementById('exportTo');if(exTo)exTo.onchange=()=>{exportTo=exTo.value;safeAutoRender()}
+ const exToday=document.getElementById('exportTodayBtn');if(exToday)exToday.onclick=()=>{exportFrom=today();exportTo=today();render()}
+ const exBtn=document.getElementById('exportExcelBtn');if(exBtn)exBtn.onclick=exportLeaderExcel
  const sr=document.getElementById('saveReport');if(sr)sr.onclick=saveReportRecord
  document.querySelectorAll('[data-edit-report]').forEach(b=>b.onclick=()=>{reportEditId=b.dataset.editReport;render()})
  const cre=document.getElementById('cancelReportEdit');if(cre)cre.onclick=()=>{reportEditId=null;render()}
