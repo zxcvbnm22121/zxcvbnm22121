@@ -1109,16 +1109,60 @@ function isChatComposing(){
  const el=document.activeElement;
  return route==='chat'&&el&&el.id==='chatInput';
 }
-function safeAutoRender(){
- const input=document.getElementById('chatInput');
- const focused=route==='chat'&&input&&document.activeElement===input;
- const start=focused?input.selectionStart:null,end=focused?input.selectionEnd:null;
- if(focused&&activeChatId)chatDrafts[activeChatId]=input.value;
- render();
- if(focused){
-  const next=document.getElementById('chatInput');
-  if(next){next.focus();const p=Math.min(start??next.value.length,next.value.length),q=Math.min(end??p,next.value.length);next.setSelectionRange(p,q)}
+function captureInteractionState(){
+ const root=document.getElementById('content');
+ const active=document.activeElement;
+ const snapshot={route,fields:[],activeId:null,selectionStart:null,selectionEnd:null,scrollX:window.scrollX,scrollY:window.scrollY};
+ if(!root)return snapshot;
+ root.querySelectorAll('input[id],textarea[id],select[id],[contenteditable="true"][id]').forEach(el=>{
+  const tag=el.tagName.toLowerCase(),type=(el.type||'').toLowerCase();
+  if(type==='file'||type==='button'||type==='submit'||type==='reset'||type==='hidden')return;
+  let dirty=false;
+  if(type==='checkbox'||type==='radio')dirty=el.checked!==el.defaultChecked;
+  else if(tag==='select')dirty=[...el.options].some(o=>o.selected!==o.defaultSelected);
+  else if(el.isContentEditable)dirty=(el.textContent||'')!==(el.dataset.initialValue||'');
+  else dirty=el.value!==el.defaultValue;
+  if(dirty||el===active){
+   snapshot.fields.push({
+    id:el.id,tag,type,value:el.isContentEditable?(el.textContent||''):el.value,
+    checked:!!el.checked,scrollTop:el.scrollTop||0,dirty
+   })
+  }
+ });
+ if(active&&root.contains(active)&&active.id){
+  snapshot.activeId=active.id;
+  if(typeof active.selectionStart==='number'){snapshot.selectionStart=active.selectionStart;snapshot.selectionEnd=active.selectionEnd}
  }
+ return snapshot
+}
+function restoreInteractionState(snapshot){
+ if(!snapshot||snapshot.route!==route)return;
+ snapshot.fields.forEach(s=>{
+  const el=document.getElementById(s.id);if(!el)return;
+  if(s.type==='checkbox'||s.type==='radio')el.checked=s.checked;
+  else if(el.isContentEditable)el.textContent=s.value;
+  else el.value=s.value;
+  if(typeof s.scrollTop==='number')el.scrollTop=s.scrollTop
+ });
+ if(snapshot.activeId){
+  const el=document.getElementById(snapshot.activeId);
+  if(el){
+   el.focus({preventScroll:true});
+   if(typeof snapshot.selectionStart==='number'&&typeof el.setSelectionRange==='function'){
+    const len=String(el.value??'').length;
+    const a=Math.min(snapshot.selectionStart,len),b=Math.min(snapshot.selectionEnd??a,len);
+    try{el.setSelectionRange(a,b)}catch(e){}
+   }
+  }
+ }
+ window.scrollTo(snapshot.scrollX,snapshot.scrollY)
+}
+function safeAutoRender(){
+ const snapshot=captureInteractionState();
+ const chatInput=document.getElementById('chatInput');
+ if(route==='chat'&&chatInput&&activeChatId)chatDrafts[activeChatId]=chatInput.value;
+ render();
+ restoreInteractionState(snapshot)
 }
 function uid(p){return p+Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
@@ -1981,12 +2025,12 @@ function helpPage(){
 }
 
 function bindPage(){
- const q=document.getElementById('q');if(q)q.oninput=()=>{filters.q=q.value;render()}
- const ef=document.getElementById('employeeFilter');if(ef)ef.onchange=()=>{filters.employee=ef.value;render()}
- const pf=document.getElementById('priorityFilter');if(pf)pf.onchange=()=>{filters.priority=pf.value;render()}
+ const q=document.getElementById('q');if(q)q.oninput=()=>{filters.q=q.value;safeAutoRender()}
+ const ef=document.getElementById('employeeFilter');if(ef)ef.onchange=()=>{filters.employee=ef.value;safeAutoRender()}
+ const pf=document.getElementById('priorityFilter');if(pf)pf.onchange=()=>{filters.priority=pf.value;safeAutoRender()}
  const cf=document.getElementById('clearFilter');if(cf)cf.onclick=()=>{filters={q:'',employee:'',priority:''};render()}
  const all=document.getElementById('selectAll');if(all)all.onchange=()=>{filteredTasks(route).forEach(t=>all.checked?selected.add(t.id):selected.delete(t.id));render()}
- document.querySelectorAll('.taskSelect').forEach(x=>x.onchange=()=>{x.checked?selected.add(x.dataset.id):selected.delete(x.dataset.id);render()})
+ document.querySelectorAll('.taskSelect').forEach(x=>x.onchange=()=>{x.checked?selected.add(x.dataset.id):selected.delete(x.dataset.id);safeAutoRender()})
  const del=document.getElementById('deleteSelected');if(del)del.onclick=deleteSelected
  document.querySelectorAll('[data-read]').forEach(b=>b.onclick=()=>openTask(b.dataset.read,true))
  document.querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>startTask(b.dataset.start))
@@ -2002,7 +2046,7 @@ function bindPage(){
  document.querySelectorAll('[data-review-request]').forEach(b=>b.onclick=()=>reviewRequest(b.dataset.reviewRequest))
  document.querySelectorAll('[data-request-filter]').forEach(b=>b.onclick=()=>{requestFilter=b.dataset.requestFilter;render()})
 
- const cs=document.getElementById('chatSearch');if(cs)cs.oninput=()=>{chatSearch=cs.value;render()}
+ const cs=document.getElementById('chatSearch');if(cs)cs.oninput=()=>{chatSearch=cs.value;safeAutoRender()}
  document.querySelectorAll('[data-chat-user]').forEach(b=>b.onclick=()=>{const input=document.getElementById('chatInput');if(input&&activeChatId)chatDrafts[activeChatId]=input.value;activeChatId=b.dataset.chatUser;markConversationRead(activeChatId);render()})
  document.querySelectorAll('[data-message-user]').forEach(b=>b.onclick=()=>{activeChatId=b.dataset.messageUser;go('chat')})
  document.querySelectorAll('[data-view-profile]').forEach(b=>b.onclick=()=>openPublicProfile(b.dataset.viewProfile))
@@ -2031,8 +2075,8 @@ function bindPage(){
  document.querySelectorAll('[data-new-schedule]').forEach(b=>b.onclick=()=>openScheduleForm(b.dataset.newSchedule))
  document.querySelectorAll('[data-edit-schedule]').forEach(b=>b.onclick=()=>openScheduleForm(null,b.dataset.editSchedule))
  document.querySelectorAll('[data-view-schedule]').forEach(b=>b.onclick=()=>openScheduleReview(b.dataset.viewSchedule))
- document.querySelectorAll('.scheduleSelect').forEach(x=>x.onchange=e=>{e.stopPropagation();x.checked?scheduleSelected.add(x.dataset.scheduleSelect):scheduleSelected.delete(x.dataset.scheduleSelect);render()})
- const selectAllSchedules=document.getElementById('selectAllPendingSchedules');if(selectAllSchedules)selectAllSchedules.onchange=()=>{const ids=[...document.querySelectorAll('.scheduleSelect')].map(x=>x.dataset.scheduleSelect);ids.forEach(id=>selectAllSchedules.checked?scheduleSelected.add(id):scheduleSelected.delete(id));render()}
+ document.querySelectorAll('.scheduleSelect').forEach(x=>x.onchange=e=>{e.stopPropagation();x.checked?scheduleSelected.add(x.dataset.scheduleSelect):scheduleSelected.delete(x.dataset.scheduleSelect);safeAutoRender()})
+ const selectAllSchedules=document.getElementById('selectAllPendingSchedules');if(selectAllSchedules)selectAllSchedules.onchange=()=>{const ids=[...document.querySelectorAll('.scheduleSelect')].map(x=>x.dataset.scheduleSelect);ids.forEach(id=>selectAllSchedules.checked?scheduleSelected.add(id):scheduleSelected.delete(id));safeAutoRender()}
  const bulkApprove=document.getElementById('bulkApproveSchedules');if(bulkApprove)bulkApprove.onclick=()=>bulkScheduleStatus('Đã duyệt')
  const bulkReject=document.getElementById('bulkRejectSchedules');if(bulkReject)bulkReject.onclick=()=>bulkScheduleStatus('Từ chối')
  document.querySelectorAll('[data-approve-schedule]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await setScheduleStatus(b.dataset.approveSchedule,'Đã duyệt')})
