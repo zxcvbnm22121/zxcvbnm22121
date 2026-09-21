@@ -2660,10 +2660,10 @@ function helpPage(){
  const leader=isLeader();
  const steps=leader?[
   ['1','Giao việc','Vào “Giao việc”, chọn nhân viên, deadline, ưu tiên và ghi rõ kết quả cần đạt.'],
-  ['2','Theo dõi chưa đọc','Mục “Chưa đọc” có badge đỏ. Còn số nghĩa là nhân viên chưa xác nhận task.'],
-  ['3','Theo dõi chưa hoàn thành','Mục “Chưa hoàn thành” có badge số. Quá hạn sẽ tự đưa lên trên và tô đỏ.'],
-  ['4','Kiểm tra đang làm','Khi Sale bấm “Bắt đầu làm”, task tự chuyển sang “Đang làm”.'],
-  ['5','Kiểm tra kết quả','Khi Sale hoàn thành đủ checklist và nhập kết quả, task chuyển sang “Hoàn thành”.'],
+  ['2','Theo dõi công việc','Vào “Theo dõi công việc” để xem cùng lúc Chưa đọc, Chưa hoàn thành, Đang làm, Hoàn thành và Nhóm việc của từng nhân viên.'],
+  ['3','Lọc theo nhân viên & nhóm việc','Bấm trực tiếp vào số trạng thái hoặc nhóm việc của từng Sale để mở đúng danh sách task chi tiết.'],
+  ['4','Kiểm tra đang làm','Khi Sale bấm “Bắt đầu làm”, số liệu ở màn Theo dõi công việc tự cập nhật.'],
+  ['5','Kiểm tra kết quả','Khi Sale hoàn thành đủ checklist và nhập kết quả, task tự chuyển sang Hoàn thành trên dashboard.'],
   ['6','Thông báo chương trình','Đăng nội dung ngay trên Trang chủ để toàn bộ Sale nhìn thấy khi vào làm việc.'],['7','Xin phép','Duyệt đơn nghỉ phép hoặc đến muộn; đơn nghỉ được duyệt sẽ tự cập nhật vào lịch.'],['8','Lịch làm việc','Sau khi Sale đăng ký, ca sẽ hiện ngay trên lịch tuần; Leader xem toàn team và duyệt từng ca.'],['9','Báo cáo','Nhập số Ads, Live, Zalo, Web theo đúng cấu trúc file Excel; phần Tổng hợp tự tính.'],['10','Tin nhắn & hồ sơ','Badge ở “Tin nhắn” là số chat chưa đọc. Mỗi người có thể tự cập nhật avatar và thông tin liên hệ.'],['11','Xuất Excel','Vào “Xuất Excel”, chọn Từ ngày – Đến ngày rồi xuất một file tổng hợp toàn bộ dữ liệu quản trị.']
  ]:[
   ['1','Mở việc chưa đọc','Badge đỏ cho biết bạn còn bao nhiêu task chưa xác nhận. Hãy đọc task mới trước.'],
@@ -2682,7 +2682,7 @@ function bindPage(){
  const ef=document.getElementById('employeeFilter');if(ef)ef.onchange=()=>{filters.employee=ef.value;safeAutoRender()}
  const pf=document.getElementById('priorityFilter');if(pf)pf.onchange=()=>{filters.priority=pf.value;safeAutoRender()}
  const wbg=document.getElementById('wbGroupFilter');if(wbg)wbg.onchange=()=>{workboardGroup=wbg.value;safeAutoRender()}
- document.querySelectorAll('[data-wb-status]').forEach(b=>b.onclick=()=>{workboardStatus=b.dataset.wbStatus;selected.clear();safeAutoRender()})
+ document.querySelectorAll('[data-wb-status]').forEach(b=>b.onclick=()=>{workboardStatus=b.dataset.wbStatus;filters.employee='';workboardGroup='';selected.clear();safeAutoRender()})
  document.querySelectorAll('[data-wb-employee]').forEach(b=>b.onclick=()=>{filters.employee=b.dataset.wbEmployee;workboardGroup='';selected.clear();safeAutoRender()})
  document.querySelectorAll('[data-wb-emp-status]').forEach(b=>b.onclick=()=>{const [emp,status]=b.dataset.wbEmpStatus.split('|');filters.employee=emp;workboardStatus=status;workboardGroup='';selected.clear();safeAutoRender()})
  document.querySelectorAll('[data-wb-group]').forEach(b=>b.onclick=()=>{filters.employee=b.dataset.wbGroupEmployee;workboardGroup=decodeURIComponent(b.dataset.wbGroup);selected.clear();safeAutoRender()})
