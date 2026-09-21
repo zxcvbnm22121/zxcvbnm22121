@@ -1499,21 +1499,24 @@ function overviewPage(){
 function metric(l,v,s,cls=''){return`<div class="card metric"><span>${l}</span><b class="${cls}">${v}</b><small>${s}</small></div>`}
 
 function assignPage(){
+ const sales=state.accounts.filter(a=>a.role==='Sale'&&a.active);
+ const minDeadline=localInputFromIso(new Date(Date.now()+60*1000).toISOString());
+ const defaultDeadline=localInputFromIso(new Date(Date.now()+2*60*60*1000).toISOString());
  return head('Giao việc mới','Điền ngắn gọn, rõ người – rõ deadline – rõ kết quả cần đạt')+
  `<div class="card pad" style="max-width:820px">
+  ${!sales.length?'<div class="error" style="margin-bottom:14px">Hiện chưa có tài khoản Sale đang hoạt động. Hãy kích hoạt/tạo Sale trước khi giao việc.</div>':''}
   <div class="formgrid">
-   <div class="field full"><label>TÊN CÔNG VIỆC</label><input id="fTitle" placeholder="VD: Follow 80 khách Ads chưa mua"></div>
-   <div class="field"><label>GIAO CHO</label><select id="fAssignee">${state.accounts.filter(a=>a.role==='Sale'&&a.active).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></div>
+   <div class="field full"><label>TÊN CÔNG VIỆC</label><input id="fTitle" maxlength="180" placeholder="VD: Follow 80 khách Ads chưa mua"></div>
+   <div class="field"><label>GIAO CHO</label><select id="fAssignee" ${sales.length?'':'disabled'}>${sales.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')||'<option value="">Chưa có Sale hoạt động</option>'}</select></div>
    <div class="field"><label>MỨC ƯU TIÊN</label><select id="fPriority"><option>Cao</option><option selected>Trung bình</option><option>Thấp</option></select></div>
-   <div class="field"><label>DEADLINE</label><input id="fDeadline" type="datetime-local" value="${today()}T15:00"></div>
+   <div class="field"><label>DEADLINE</label><input id="fDeadline" type="datetime-local" min="${minDeadline}" value="${defaultDeadline}"></div>
    <div class="field"><label>NHÓM VIỆC</label><select id="fGroup"><option>Bám đuổi khách</option><option>Khách mới</option><option>Livestream</option><option>Ads</option><option>Xin hàng</option><option>Kiểm tra tồn</option><option>CSKH</option><option>Báo cáo</option><option>Khác</option></select></div>
-   <div class="field full"><label>YÊU CẦU / KẾT QUẢ CẦN ĐẠT</label><textarea id="fDesc" rows="4" placeholder="Nói rõ nhân viên cần làm gì và báo lại kết quả nào..."></textarea></div>
-   <div class="field full"><label>CHECKLIST — MỖI DÒNG 1 VIỆC (không bắt buộc)</label><textarea id="fChecklist" rows="4" placeholder="Nhận data&#10;Lọc khách&#10;Follow lần 1&#10;Báo kết quả"></textarea></div>
+   <div class="field full"><label>YÊU CẦU / KẾT QUẢ CẦN ĐẠT</label><textarea id="fDesc" rows="4" maxlength="3000" placeholder="Nói rõ nhân viên cần làm gì và báo lại kết quả nào..."></textarea></div>
+   <div class="field full"><label>CHECKLIST — MỖI DÒNG 1 VIỆC (không bắt buộc)</label><textarea id="fChecklist" rows="4" maxlength="4000" placeholder="Nhận data&#10;Lọc khách&#10;Follow lần 1&#10;Báo kết quả"></textarea></div>
   </div>
-  <div style="display:flex;justify-content:flex-end;margin-top:4px"><button class="primary" id="createTaskBtn">Giao việc cho nhân viên →</button></div>
+  <div style="display:flex;justify-content:flex-end;margin-top:4px"><button class="primary" id="createTaskBtn" ${sales.length?'':'disabled'}>Giao việc cho nhân viên →</button></div>
  </div>`;
 }
-
 function filteredTasks(mode){
  let a=myTasks().slice();
  if(mode==='unread')a=a.filter(t=>!t.read&&t.status!=='done');
@@ -1522,7 +1525,7 @@ function filteredTasks(mode){
  if(mode==='done')a=a.filter(t=>t.status==='done');
  if(filters.employee)a=a.filter(t=>t.assigneeId===filters.employee);
  if(filters.priority)a=a.filter(t=>t.priority===filters.priority);
- if(filters.q){const q=filters.q.toLowerCase();a=a.filter(t=>(t.title+' '+t.description+' '+t.assignee).toLowerCase().includes(q))}
+ if(filters.q){const q=filters.q.toLowerCase();a=a.filter(t=>(t.title+' '+t.description+' '+t.assignee+' '+(t.group||'')).toLowerCase().includes(q))}
  return a.sort((x,y)=>{if(x.status==='done'&&y.status==='done')return new Date(y.completedAt||0)-new Date(x.completedAt||0);if(overdue(x)!==overdue(y))return overdue(x)?-1:1;if(x.priority!==y.priority)return['Cao','Trung bình','Thấp'].indexOf(x.priority)-['Cao','Trung bình','Thấp'].indexOf(y.priority);return new Date(x.deadline)-new Date(y.deadline)})
 }
 function tasksPage(mode){
@@ -1957,22 +1960,56 @@ function bindPage(){
 
 }
 async function createTask(){
- if(taskCreating)return;taskCreating=true;
- const title=document.getElementById('fTitle').value.trim(),assigneeId=document.getElementById('fAssignee').value,deadline=document.getElementById('fDeadline').value;
- if(!title||!deadline){taskCreating=false;return showToast('Nhập tên công việc và deadline')}
- const target=state.accounts.find(a=>a.id===assigneeId&&a.role==='Sale');
- if(!target){taskCreating=false;return showToast('Không tìm thấy tài khoản nhân viên trong Supabase')}
+ if(taskCreating)return;
+ const title=(document.getElementById('fTitle')?.value||'').trim();
+ const assigneeId=document.getElementById('fAssignee')?.value||'';
+ const deadline=document.getElementById('fDeadline')?.value||'';
+ const target=state.accounts.find(a=>a.id===assigneeId&&a.role==='Sale'&&a.active);
+ if(!title)return showToast('Nhập tên công việc');
+ if(!target)return showToast('Chưa có nhân viên Sale hoạt động để giao task');
+ if(!deadline)return showToast('Chọn deadline');
+ const deadlineDate=new Date(deadline);
+ if(Number.isNaN(deadlineDate.getTime()))return showToast('Deadline không hợp lệ');
+ if(deadlineDate.getTime()<=Date.now()+30000)return showToast('Deadline phải ở thời điểm tương lai');
+ const checklist=[...new Set((document.getElementById('fChecklist')?.value||'').split('\n').map(x=>x.trim()).filter(Boolean))];
  const payload={
-  title,description:document.getElementById('fDesc').value.trim(),assigned_to:target.id,created_by:me().id,
-  priority:priorityDb(document.getElementById('fPriority').value),task_group:document.getElementById('fGroup').value,status:'todo',
-  deadline:new Date(deadline).toISOString(),is_read:false,
-  checklist:{items:document.getElementById('fChecklist').value.split('\n').map(x=>x.trim()).filter(Boolean),checked:[]},
+  title,
+  description:(document.getElementById('fDesc')?.value||'').trim(),
+  assigned_to:target.id,
+  created_by:me().id,
+  priority:priorityDb(document.getElementById('fPriority')?.value||'Trung bình'),
+  task_group:document.getElementById('fGroup')?.value||'Khác',
+  status:'todo',
+  deadline:deadlineDate.toISOString(),
+  is_read:false,
+  read_at:null,
+  checklist:{items:checklist,checked:[]},
   result:''
  };
- const {data,error}=await supabaseClient.from('tasks').insert(payload).select().single();
- if(error){taskCreating=false;return showToast('Không giao được task: '+error.message)}
- await addRemoteHistory(data.id,'created','Đã giao task');
- await syncRemoteTasks(true);taskCreating=false;showToast(`Đã giao việc cho ${target.name}`);filters={q:'',employee:target.id,priority:''};go('pending')
+ const btn=document.getElementById('createTaskBtn');
+ taskCreating=true;
+ if(btn){btn.disabled=true;btn.textContent='Đang giao việc...'}
+ try{
+  const {data,error}=await supabaseClient.from('tasks').insert(payload).select().single();
+  if(error)throw error;
+  await addRemoteHistory(data.id,'created',`Đã giao task cho ${target.name}`);
+  try{
+   await syncRemoteTasks(true);
+   filters={q:'',employee:target.id,priority:''};
+   showToast(`Đã giao việc cho ${target.name}`);
+   go('pending')
+  }catch(syncErr){
+   console.error('task created but refresh failed',syncErr);
+   showToast('Task đã được giao nhưng danh sách chưa đồng bộ. Hãy tải lại trang.')
+  }
+ }catch(err){
+  console.error('create task',err);
+  showToast('Không giao được task: '+(err?.message||err))
+ }finally{
+  taskCreating=false;
+  const b=document.getElementById('createTaskBtn');
+  if(b){b.disabled=false;b.textContent='Giao việc cho nhân viên →'}
+ }
 }
 async function markRead(t){
  if(t.read)return;
@@ -2033,15 +2070,47 @@ async function completeTask(id){
 }
 function editTask(id){
  const t=state.tasks.find(x=>x.id===id);if(!t||!isLeader())return;
- openModal('Sửa task',`<div class="formgrid"><div class="field full"><label>TÊN CÔNG VIỆC</label><input id="eTitle" value="${esc(t.title)}"></div><div class="field"><label>GIAO CHO</label><select id="eAssignee">${state.accounts.filter(a=>a.role==='Sale'&&a.active).map(a=>`<option value="${a.id}" ${a.id===t.assigneeId?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div><div class="field"><label>ƯU TIÊN</label><select id="ePriority">${['Cao','Trung bình','Thấp'].map(x=>`<option ${x===t.priority?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>NHÓM VIỆC</label><select id="eGroup">${['Bám đuổi khách','Khách mới','Livestream','Ads','Xin hàng','Kiểm tra tồn','CSKH','Báo cáo','Khác'].map(x=>`<option ${x===t.group?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>DEADLINE</label><input id="eDeadline" type="datetime-local" value="${localInputFromIso(t.deadline)}"></div><div class="field full"><label>YÊU CẦU</label><textarea id="eDesc" rows="4">${esc(t.description)}</textarea></div><div class="field full"><label>CHECKLIST</label><textarea id="eChecklist" rows="4">${esc((t.checklist||[]).join('\n'))}</textarea></div></div>`,[{label:'Lưu thay đổi',primary:true,action:async()=>{
-  const target=state.accounts.find(a=>a.id===document.getElementById('eAssignee').value);
-  const items=document.getElementById('eChecklist').value.split('\n').map(x=>x.trim()).filter(Boolean);
-  const due=document.getElementById('eDeadline').value;
+ const sales=state.accounts.filter(a=>a.role==='Sale');
+ openModal('Sửa task',`<div class="formgrid">
+  <div class="field full"><label>TÊN CÔNG VIỆC</label><input id="eTitle" maxlength="180" value="${esc(t.title)}"></div>
+  <div class="field"><label>GIAO CHO</label><select id="eAssignee">${sales.map(a=>`<option value="${a.id}" ${a.id===t.assigneeId?'selected':''} ${!a.active&&a.id!==t.assigneeId?'disabled':''}>${esc(a.name)}${a.active?'':' · Đã khóa'}</option>`).join('')}</select></div>
+  <div class="field"><label>ƯU TIÊN</label><select id="ePriority">${['Cao','Trung bình','Thấp'].map(x=>`<option ${x===t.priority?'selected':''}>${x}</option>`).join('')}</select></div>
+  <div class="field"><label>NHÓM VIỆC</label><select id="eGroup">${['Bám đuổi khách','Khách mới','Livestream','Ads','Xin hàng','Kiểm tra tồn','CSKH','Báo cáo','Khác'].map(x=>`<option ${x===t.group?'selected':''}>${x}</option>`).join('')}</select></div>
+  <div class="field"><label>DEADLINE</label><input id="eDeadline" type="datetime-local" value="${localInputFromIso(t.deadline)}"></div>
+  <div class="field full"><label>YÊU CẦU</label><textarea id="eDesc" rows="4" maxlength="3000">${esc(t.description)}</textarea></div>
+  <div class="field full"><label>CHECKLIST</label><textarea id="eChecklist" rows="4" maxlength="4000">${esc((t.checklist||[]).join('\n'))}</textarea></div>
+ </div>`,[{label:'Lưu thay đổi',primary:true,action:async()=>{
+  const title=(document.getElementById('eTitle')?.value||'').trim();
+  const target=state.accounts.find(a=>a.id===document.getElementById('eAssignee')?.value&&a.role==='Sale');
+  const due=document.getElementById('eDeadline')?.value||'';
+  if(!title)return showToast('Tên công việc không được để trống');
+  if(!target)return showToast('Không tìm thấy nhân viên nhận task');
   const reassigned=target.id!==t.assigneeId;
-  const payload={title:document.getElementById('eTitle').value.trim(),assigned_to:target.id,priority:priorityDb(document.getElementById('ePriority').value),task_group:document.getElementById('eGroup').value,deadline:due?new Date(due).toISOString():null,description:document.getElementById('eDesc').value.trim(),checklist:{items,checked:reassigned?[]:(t.checked||[]).filter(i=>i<items.length)},updated_at:new Date().toISOString(),...(reassigned?{is_read:false,read_at:null,status:'todo',started_at:null,completed_at:null,result:''}:{})};
+  if(reassigned&&!target.active)return showToast('Không thể chuyển task cho tài khoản đang khóa');
+  if(!due)return showToast('Task phải có deadline');
+  const dueDate=new Date(due);
+  if(Number.isNaN(dueDate.getTime()))return showToast('Deadline không hợp lệ');
+  if((reassigned||t.status!=='done')&&dueDate.getTime()<=Date.now()+30000)return showToast('Deadline của task đang mở phải ở thời điểm tương lai');
+  const items=[...new Set((document.getElementById('eChecklist')?.value||'').split('\n').map(x=>x.trim()).filter(Boolean))];
+  const doneTexts=new Set((t.checked||[]).map(i=>(t.checklist||[])[i]).filter(Boolean));
+  const checked=reassigned?[]:items.map((x,i)=>doneTexts.has(x)?i:-1).filter(i=>i>=0);
+  const payload={
+   title,
+   assigned_to:target.id,
+   priority:priorityDb(document.getElementById('ePriority')?.value||'Trung bình'),
+   task_group:document.getElementById('eGroup')?.value||'Khác',
+   deadline:dueDate.toISOString(),
+   description:(document.getElementById('eDesc')?.value||'').trim(),
+   checklist:{items,checked},
+   updated_at:new Date().toISOString(),
+   ...(reassigned?{is_read:false,read_at:null,status:'todo',started_at:null,completed_at:null,result:''}:{})
+  };
   const {error}=await supabaseClient.from('tasks').update(payload).eq('id',id);
   if(error)return showToast('Không cập nhật được task: '+error.message);
-  await addRemoteHistory(id,'edited','Leader đã chỉnh sửa task');await syncRemoteTasks(true);closeModal();render();showToast('Đã cập nhật task')
+  const detail=reassigned?`Đã chuyển task từ ${t.assignee||'nhân viên cũ'} sang ${target.name}; reset trạng thái đọc và tiến độ`:'Leader đã chỉnh sửa task';
+  await addRemoteHistory(id,reassigned?'reassigned':'edited',detail);
+  try{await syncRemoteTasks(true)}catch(err){console.error(err);closeModal();return showToast('Đã lưu thay đổi nhưng danh sách chưa đồng bộ. Hãy tải lại trang.')}
+  closeModal();render();showToast(reassigned?'Đã chuyển task cho '+target.name:'Đã cập nhật task')
  }}])
 }
 async function deleteSelected(){
