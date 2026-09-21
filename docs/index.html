@@ -1099,7 +1099,7 @@ function clone(x){return JSON.parse(JSON.stringify(x))}
 function load(){
  try{localStorage.removeItem(KEY)}catch(e){}
  return {
-  accounts:[],tasks:[],messages:[],schedules:[],announcements:[],leaveRequests:[],
+  accounts:[],tasks:[],messages:[],chatGroups:[],chatGroupMembers:[],chatGroupMessages:[],schedules:[],announcements:[],leaveRequests:[],
   reports:{ads:[],live:[],zalo:[],web:[]},reportTargets:{}
  }
 }
@@ -1234,7 +1234,7 @@ async function activateRemoteUser(user){
  if(!profile)throw new Error('Tài khoản chưa có profile. Hãy kiểm tra bảng profiles trong Supabase.');
  if(!profile.active)throw new Error('Tài khoản này đang bị khóa.');
  session={id:user.id};route=profile.role==='Leader'?'overview':'pending';
- await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true),syncRemoteModules(true)]);subscribeTaskChanges();showApp();render()
+ await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true),syncRemoteGroupChat(true),syncRemoteModules(true)]);subscribeTaskChanges();showApp();render()
 }
 async function syncRemoteModules(silent=false){
  if(!session?.id)return;
@@ -1284,6 +1284,9 @@ function subscribeTaskChanges(){
   .on('postgres_changes',{event:'*',schema:'public',table:'task_history'},()=>syncRemoteTasks(true).then(()=>safeAutoRender()).catch(console.error))
   .on('postgres_changes',{event:'*',schema:'public',table:'profiles'},()=>syncProfiles().then(()=>Promise.all([syncRemoteTasks(true),syncRemoteModules(true)])).then(()=>safeAutoRender()).catch(console.error))
   .on('postgres_changes',{event:'*',schema:'public',table:'messages'},()=>syncRemoteMessages(true).then(()=>safeAutoRender()).catch(console.error))
+  .on('postgres_changes',{event:'*',schema:'public',table:'chat_groups'},()=>syncRemoteGroupChat(true).then(()=>safeAutoRender()).catch(console.error))
+  .on('postgres_changes',{event:'*',schema:'public',table:'chat_group_members'},()=>syncRemoteGroupChat(true).then(()=>safeAutoRender()).catch(console.error))
+  .on('postgres_changes',{event:'*',schema:'public',table:'chat_group_messages'},()=>syncRemoteGroupChat(true).then(()=>safeAutoRender()).catch(console.error))
   .on('postgres_changes',{event:'*',schema:'public',table:'announcements'},()=>syncRemoteModules(true).then(()=>safeAutoRender()).catch(console.error))
   .on('postgres_changes',{event:'*',schema:'public',table:'work_schedules'},()=>syncRemoteModules(true).then(()=>safeAutoRender()).catch(console.error))
   .on('postgres_changes',{event:'*',schema:'public',table:'leave_requests'},()=>syncRemoteModules(true).then(()=>safeAutoRender()).catch(console.error))
@@ -2651,7 +2654,7 @@ document.getElementById('modalBack').onclick=e=>{if(e.target.id==='modalBack')cl
 document.getElementById('closeLightbox').onclick=()=>document.getElementById('imageLightbox').classList.remove('open')
 document.getElementById('imageLightbox').onclick=e=>{if(e.target.id==='imageLightbox')document.getElementById('imageLightbox').classList.remove('open')}
 document.addEventListener('click',e=>{const ep=document.getElementById('emojiPicker'),eb=document.getElementById('emojiBtn');if(ep&&eb&&!ep.contains(e.target)&&!eb.contains(e.target))ep.classList.remove('open')})
-setInterval(async()=>{if(me()){try{await syncProfiles();const current=me();if(!current||!current.active){await supabaseClient.auth.signOut();session=null;showLogin();return}await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true),syncRemoteModules(true)]);safeAutoRender()}catch(e){console.warn('poll sync',e)}}},30000)
+setInterval(async()=>{if(me()){try{await syncProfiles();const current=me();if(!current||!current.active){await supabaseClient.auth.signOut();session=null;showLogin();return}await Promise.all([syncRemoteTasks(true),syncRemoteMessages(true),syncRemoteGroupChat(true),syncRemoteModules(true)]);safeAutoRender()}catch(e){console.warn('poll sync',e)}}},30000)
 supabaseClient.auth.onAuthStateChange((event,sess)=>{
  if(event==='PASSWORD_RECOVERY'){setTimeout(openRecoveryModal,0);return}
  if(event==='SIGNED_OUT'){session=null;showLogin()}
