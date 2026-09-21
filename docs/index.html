@@ -1307,9 +1307,106 @@ function avatarHTML(a,cls='avatar'){
  const src=a?.avatar||'';
  return `<div class="${cls}">${src?`<img class="avatar-img" src="${esc(src)}" alt="">`:initials(a?.name||'')}</div>`;
 }
+function isGroupChatId(id){return typeof id==='string'&&id.startsWith('group:')}
+function activeGroupId(){return isGroupChatId(activeChatId)?activeChatId.slice(6):null}
+function groupById(id){return (state.chatGroups||[]).find(g=>g.id===id)||null}
+function groupMembers(groupId){
+ const ids=(state.chatGroupMembers||[]).filter(x=>x.groupId===groupId).map(x=>x.userId);
+ return ids.map(id=>state.accounts.find(a=>a.id===id)).filter(Boolean)
+}
+function groupConversation(groupId){
+ return (state.chatGroupMessages||[]).filter(m=>m.groupId===groupId).sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt))
+}
+function lastGroupMessage(groupId){const a=groupConversation(groupId);return a[a.length-1]||null}
+function groupUnread(groupId){
+ const id=me()?.id;if(!id)return 0;
+ const member=(state.chatGroupMembers||[]).find(x=>x.groupId===groupId&&x.userId===id);
+ if(!member)return 0;
+ const last=new Date(member.lastReadAt||0).getTime();
+ return groupConversation(groupId).filter(m=>m.senderId!==id&&new Date(m.createdAt).getTime()>last).length
+}
+async function syncRemoteGroupChat(silent=false){
+ if(!session?.id)return;
+ try{
+  const [groups,members,msgRows]=await Promise.all([
+   fetchAllRows('chat_groups','created_at',false),
+   fetchAllRows('chat_group_members','joined_at',true),
+   (async()=>{
+    const {data,error}=await supabaseClient.from('chat_group_messages').select('*').order('created_at',{ascending:false}).limit(1000);
+    if(error)throw error;return (data||[]).slice().reverse()
+   })()
+  ]);
+  const paths=[...new Set((msgRows||[]).map(x=>x.image_path).filter(Boolean))],signed={};
+  await Promise.all(paths.map(async p=>{signed[p]=await signedChatImage(p)}));
+  state.chatGroups=(groups||[]).filter(x=>x.active!==false).map(x=>({
+   id:x.id,name:x.name,createdBy:x.created_by,createdAt:x.created_at,updatedAt:x.updated_at
+  }));
+  state.chatGroupMembers=(members||[]).map(x=>({
+   groupId:x.group_id,userId:x.user_id,addedBy:x.added_by,joinedAt:x.joined_at,lastReadAt:x.last_read_at
+  }));
+  state.chatGroupMessages=(msgRows||[]).map(x=>({
+   id:x.id,groupId:x.group_id,senderId:x.sender_id,text:x.content||'',image:signed[x.image_path]||'',
+   imagePath:x.image_path||'',createdAt:x.created_at
+  }));
+  if(!silent&&route==='chat')safeAutoRender()
+ }catch(error){
+  if(error?.code==='42P01'||String(error?.message||'').includes('does not exist')){
+   state.chatGroups=[];state.chatGroupMembers=[];state.chatGroupMessages=[];return
+  }
+  throw error
+ }
+}
+async function markGroupRead(groupId){
+ const member=(state.chatGroupMembers||[]).find(x=>x.groupId===groupId&&x.userId===me()?.id);
+ if(!member||!groupUnread(groupId))return;
+ const now=new Date().toISOString();
+ const {error}=await supabaseClient.from('chat_group_members').update({last_read_at:now})
+  .eq('group_id',groupId).eq('user_id',me().id);
+ if(error){console.warn('mark group read',error);return}
+ member.lastReadAt=now;renderNav();
+ if(route==='chat')safeAutoRender()
+}
+function openGroupChatModal(group=null){
+ if(!isLeader())return;
+ const editing=!!group;
+ const current=new Set(group?groupMembers(group.id).map(x=>x.id):[]);
+ const sales=state.accounts.filter(a=>a.role==='Sale'&&a.active);
+ openModal(editing?'Quản lý nhóm chat':'Tạo nhóm chat',`<div class="formgrid">
+  <div class="field full"><label>TÊN NHÓM</label><input id="groupName" maxlength="80" value="${esc(group?.name||'')}" placeholder="VD: Sale Online · Ca sáng"></div>
+  <div class="field full"><label>THÀNH VIÊN</label>
+   <div class="card pad" style="max-height:260px;overflow:auto">
+    ${sales.map(a=>`<label style="display:flex;align-items:center;gap:9px;padding:7px 2px"><input class="groupMemberPick" type="checkbox" value="${a.id}" ${current.has(a.id)?'checked':''}> ${avatarHTML(a)} <span><b>${esc(a.name)}</b><br><span class="sub">${esc(a.title||'Sale Online')}</span></span></label>`).join('')||'<div class="sub">Chưa có Sale hoạt động</div>'}
+   </div>
+  </div>
+ </div><div class="profile-hint">Leader luôn là thành viên của nhóm. Nhân viên chỉ xem được nhóm mà mình được thêm vào.</div>`,
+ [{label:editing?'Lưu nhóm':'Tạo nhóm',primary:true,action:async()=>{
+   const name=(document.getElementById('groupName')?.value||'').trim();
+   const memberIds=[...document.querySelectorAll('.groupMemberPick:checked')].map(x=>x.value);
+   if(!name)return showToast('Nhập tên nhóm');
+   if(!memberIds.length)return showToast('Chọn ít nhất 1 nhân viên');
+   let groupId=group?.id;
+   if(editing){
+    const {error}=await supabaseClient.from('chat_groups').update({name,updated_at:new Date().toISOString()}).eq('id',groupId);
+    if(error)return showToast('Không cập nhật được nhóm: '+error.message);
+    const {error:delErr}=await supabaseClient.from('chat_group_members').delete().eq('group_id',groupId);
+    if(delErr)return showToast('Không cập nhật được thành viên: '+delErr.message)
+   }else{
+    const {data,error}=await supabaseClient.from('chat_groups').insert({name,created_by:me().id}).select().single();
+    if(error)return showToast('Không tạo được nhóm: '+error.message);
+    groupId=data.id
+   }
+   const ids=[...new Set([me().id,...memberIds])];
+   const {error:memErr}=await supabaseClient.from('chat_group_members').insert(ids.map(user_id=>({group_id:groupId,user_id,added_by:me().id})));
+   if(memErr){
+    if(!editing)await supabaseClient.from('chat_groups').delete().eq('id',groupId);
+    return showToast('Không lưu được thành viên nhóm: '+memErr.message)
+   }
+   await syncRemoteGroupChat(true);closeModal();activeChatId='group:'+groupId;render();showToast(editing?'Đã cập nhật nhóm':'Đã tạo nhóm chat')
+ }}])
+}
 function unreadMessages(){
  const id=me()?.id;if(!id)return 0;
- return state.messages.filter(m=>m.to===id&&!m.readAt).length;
+ return state.messages.filter(m=>m.to===id&&!m.readAt).length+(state.chatGroups||[]).reduce((s,g)=>s+groupUnread(g.id),0);
 }
 function unreadFrom(userId){
  const id=me()?.id;if(!id)return 0;
