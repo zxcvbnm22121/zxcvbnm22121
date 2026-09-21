@@ -1103,7 +1103,7 @@ function load(){
   reports:{ads:[],live:[],zalo:[],web:[]},reportTargets:{}
  }
 }
-let state=load(),session=null,loginRole='Leader',route='overview',selected=new Set(),filters={q:'',employee:'',priority:''},activeChatId=null,chatSearch='',scheduleWeekOffset=0,scheduleSelected=new Set(),scheduleBulkBusy=false,reportTab='ads',reportMonth=today().slice(0,7),reportEditId=null,requestFilter='all',taskChannel=null,lastTaskSyncAt=null,chatDrafts={},chatSending=false,taskCreating=false,chatImageUrlCache=new Map();
+let state=load(),session=null,loginRole='Leader',route='overview',selected=new Set(),filters={q:'',employee:'',priority:''},activeChatId=null,chatSearch='',scheduleWeekOffset=0,scheduleSelected=new Set(),scheduleBulkBusy=false,reportTab='ads',reportMonth=today().slice(0,7),reportEditId=null,requestFilter='all',taskChannel=null,lastTaskSyncAt=null,chatDrafts={},chatSending=false,taskCreating=false,chatImageUrlCache=new Map(),exportFrom=today(),exportTo=today(),exportBusy=false;
 function save(){}
 function isChatComposing(){
  const el=document.activeElement;
@@ -1442,6 +1442,7 @@ function navItems(){
   ['permission','◴','Xin phép',requestPendingCount()],
   ['schedule','▦','Lịch làm việc',schedulePendingCount()],
   ['report','▤','Báo cáo',''],
+  ['export','⇩','Xuất Excel',''],
   ['chat','✉','Tin nhắn',unreadMessages()],
   ['profile','☺','Hồ sơ của tôi',''],
   ['help','?','Hướng dẫn','']
@@ -1474,6 +1475,7 @@ const meta={
  permission:['Xin phép','Gửi và duyệt đơn nghỉ phép hoặc đến muộn'],
  schedule:['Đăng ký & Lịch làm việc','Đăng ký ca và xem lịch làm việc theo tuần'],
  report:['Báo cáo','Nhập báo cáo Ads, Live, Zalo, Website theo cấu trúc file Excel'],
+ export:['Xuất Excel','Xuất toàn bộ dữ liệu quản trị theo ngày hoặc khoảng ngày'],
  chat:['Tin nhắn','Trao đổi trực tiếp giữa Leader và nhân viên'],
  profile:['Hồ sơ của tôi','Avatar và thông tin liên hệ cá nhân'],
  help:['Hướng dẫn sử dụng','Quy trình giao và hoàn thành công việc']
@@ -1481,12 +1483,12 @@ const meta={
 function go(r){route=r;selected.clear();render()}
 function render(){
  const a=me();if(!a){showLogin();return}
- if(!isLeader()&&['overview','assign','employees'].includes(route))route='pending';
+ if(!isLeader()&&['overview','assign','employees','export'].includes(route))route='pending';
  renderNav();
  document.getElementById('displayName').textContent=a.name;document.getElementById('roleText').textContent=a.role;const av=document.getElementById('avatar');av.innerHTML=a.avatar?`<img class="avatar-img" src="${esc(a.avatar)}" alt="">`:initials(a.name);
  const m=meta[route]||['Công việc',''];document.getElementById('topTitle').textContent=m[0];document.getElementById('topSub').textContent=m[1];
- document.getElementById('topAction').innerHTML=`<span class="online-pill"><i></i> ONLINE</span> `+(isLeader()&&['overview','unread','pending','doing','done'].includes(route)?`<button class="primary" onclick="go('assign')">+ Giao việc</button>`:'');
- let h='';if(route==='overview')h=overviewPage();if(route==='assign')h=assignPage();if(['unread','pending','doing','done'].includes(route))h=tasksPage(route);if(route==='employees')h=employeesPage();if(route==='permission')h=permissionPage();if(route==='schedule')h=schedulePage();if(route==='report')h=reportPage();if(route==='chat')h=chatPage();if(route==='profile')h=profilePage();if(route==='help')h=helpPage();
+ document.getElementById('topAction').innerHTML=`<span class="online-pill"><i></i> ONLINE</span> `+(isLeader()&&route==='overview'?`<button class="btn" onclick="go('export')">⇩ Xuất Excel</button> `:'')+(isLeader()&&['overview','unread','pending','doing','done'].includes(route)?`<button class="primary" onclick="go('assign')">+ Giao việc</button>`:'');
+ let h='';if(route==='overview')h=overviewPage();if(route==='assign')h=assignPage();if(['unread','pending','doing','done'].includes(route))h=tasksPage(route);if(route==='employees')h=employeesPage();if(route==='permission')h=permissionPage();if(route==='schedule')h=schedulePage();if(route==='report')h=reportPage();if(route==='export')h=exportPage();if(route==='chat')h=chatPage();if(route==='profile')h=profilePage();if(route==='help')h=helpPage();
  document.getElementById('content').innerHTML=h;bindPage()
 }
 function head(title,desc,action=''){return`<div class="head"><div><h1>${title}</h1><p>${desc}</p></div>${action}</div>`}
@@ -1533,7 +1535,7 @@ function overviewPage(){
  </div>
  <div class="grid g2">
   <div class="card pad"><div class="sectionhead"><h3>Tình trạng theo nhân viên</h3><small>Bấm để xem task chưa hoàn thành</small></div>
-   <div class="empgrid">${sales.map(s=>{const x=countsFor(s.name);return`<div class="empcard" onclick="filters.employee='${esc(s.name)}';go('pending')" style="cursor:pointer"><div class="avatar">${initials(s.name)}</div><div><b>${esc(s.name)}</b><div class="sub">${x.unread?`<span class="red">${x.unread} chưa đọc</span>`:'Đã đọc hết task'}</div></div><div class="empnums"><div><b>${x.pending}</b><span>CHƯA XONG</span></div><div><b class="${x.overdue?'red':''}">${x.overdue}</b><span>QUÁ HẠN</span></div></div></div>`}).join('')}</div>
+   <div class="empgrid">${sales.map(s=>{const x=countsFor(s.id);return`<div class="empcard" onclick="filters.employee='${s.id}';go('pending')" style="cursor:pointer"><div class="avatar">${initials(s.name)}</div><div><b>${esc(s.name)}</b><div class="sub">${x.unread?`<span class="red">${x.unread} chưa đọc</span>`:'Đã đọc hết task'}</div></div><div class="empnums"><div><b>${x.pending}</b><span>CHƯA XONG</span></div><div><b class="${x.overdue?'red':''}">${x.overdue}</b><span>QUÁ HẠN</span></div></div></div>`}).join('')}</div>
   </div>
   <div class="card pad"><div class="sectionhead"><h3>Xin phép chờ duyệt</h3><button class="btn small" onclick="go('permission')">Xem tất cả</button></div>
    <div class="request-list">${(state.leaveRequests||[]).filter(x=>x.status==='Chờ duyệt').slice(0,5).map(requestCard).join('')||'<div class="empty" style="padding:26px 10px"><b>Không có đơn chờ duyệt</b></div>'}</div>
