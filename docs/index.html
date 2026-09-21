@@ -1385,21 +1385,30 @@ function openGroupChatModal(group=null){
    if(!name)return showToast('Nhập tên nhóm');
    if(!memberIds.length)return showToast('Chọn ít nhất 1 nhân viên');
    let groupId=group?.id;
+   const desired=[...new Set([me().id,...memberIds])];
    if(editing){
     const {error}=await supabaseClient.from('chat_groups').update({name,updated_at:new Date().toISOString()}).eq('id',groupId);
     if(error)return showToast('Không cập nhật được nhóm: '+error.message);
-    const {error:delErr}=await supabaseClient.from('chat_group_members').delete().eq('group_id',groupId);
-    if(delErr)return showToast('Không cập nhật được thành viên: '+delErr.message)
+    const existing=(state.chatGroupMembers||[]).filter(x=>x.groupId===groupId).map(x=>x.userId);
+    const toAdd=desired.filter(id=>!existing.includes(id));
+    const toRemove=existing.filter(id=>!desired.includes(id));
+    if(toAdd.length){
+     const {error:addErr}=await supabaseClient.from('chat_group_members').insert(toAdd.map(user_id=>({group_id:groupId,user_id,added_by:me().id})));
+     if(addErr)return showToast('Không thêm được thành viên: '+addErr.message)
+    }
+    if(toRemove.length){
+     const {error:removeErr}=await supabaseClient.from('chat_group_members').delete().eq('group_id',groupId).in('user_id',toRemove);
+     if(removeErr)return showToast('Không xóa được thành viên cũ: '+removeErr.message)
+    }
    }else{
     const {data,error}=await supabaseClient.from('chat_groups').insert({name,created_by:me().id}).select().single();
     if(error)return showToast('Không tạo được nhóm: '+error.message);
-    groupId=data.id
-   }
-   const ids=[...new Set([me().id,...memberIds])];
-   const {error:memErr}=await supabaseClient.from('chat_group_members').insert(ids.map(user_id=>({group_id:groupId,user_id,added_by:me().id})));
-   if(memErr){
-    if(!editing)await supabaseClient.from('chat_groups').delete().eq('id',groupId);
-    return showToast('Không lưu được thành viên nhóm: '+memErr.message)
+    groupId=data.id;
+    const {error:memErr}=await supabaseClient.from('chat_group_members').insert(desired.map(user_id=>({group_id:groupId,user_id,added_by:me().id})));
+    if(memErr){
+     await supabaseClient.from('chat_groups').delete().eq('id',groupId);
+     return showToast('Không lưu được thành viên nhóm: '+memErr.message)
+    }
    }
    await syncRemoteGroupChat(true);closeModal();activeChatId='group:'+groupId;render();showToast(editing?'Đã cập nhật nhóm':'Đã tạo nhóm chat')
  }}])
